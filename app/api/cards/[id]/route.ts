@@ -67,6 +67,9 @@ export async function GET(
     ...enriched,
     game: "pokemon",
     language,
-    marketCurrency: enriched.pricing?.tcgplayer?.unit ?? "USD",
+    marketCurrency:
+      enriched.pricing?.tcgplayer?.unit ??
+      enriched.pricing?.cardmarket?.unit ??
+      null,
   });
 }
