@@ -1,15 +1,35 @@
 import { NextResponse } from "next/server";
-import { TCGDEX_BASE } from "@/lib/tcgdex";
+import { tcgdexBase } from "@/lib/tcgdex";
 import { enrichRecentCardWithTcgCsv, getTcgCsvCard } from "@/lib/tcgcsv";
-import { TcgDexCard } from "@/lib/types";
+import { getRiftboundCard } from "@/lib/riftbound";
+import { CardLanguage, TcgDexCard } from "@/lib/types";
 
 export const revalidate = 21600;
 
+function languageFromUrl(request: Request): CardLanguage {
+  const value = new URL(request.url).searchParams.get("language");
+  if (value === "Japanese") return "Japanese";
+  if (value === "Chinese") return "Chinese";
+  return "English";
+}
+
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
   const { id } = await context.params;
+  const language = languageFromUrl(request);
+
+  if (id.startsWith("riftcsv-")) {
+    const card = await getRiftboundCard(id, language);
+    if (!card) {
+      return NextResponse.json(
+        { error: "Riftbound card not found in TCGCSV." },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json(card);
+  }
 
   if (id.startsWith("tcgcsv-")) {
     const card = await getTcgCsvCard(id);
@@ -19,12 +39,18 @@ export async function GET(
         { status: 404 }
       );
     }
-    return NextResponse.json(card);
+    return NextResponse.json({
+      ...card,
+      game: "pokemon",
+      language: "English",
+      marketCurrency: "USD",
+    });
   }
 
-  const response = await fetch(`${TCGDEX_BASE}/cards/${encodeURIComponent(id)}`, {
-    next: { revalidate: 21600 },
-  });
+  const response = await fetch(
+    `${tcgdexBase(language)}/cards/${encodeURIComponent(id)}`,
+    { next: { revalidate: 21600 } }
+  );
 
   if (!response.ok) {
     return NextResponse.json(
@@ -34,6 +60,13 @@ export async function GET(
   }
 
   const card = (await response.json()) as TcgDexCard;
-  const enriched = await enrichRecentCardWithTcgCsv(card);
-  return NextResponse.json(enriched);
+  const enriched =
+    language === "English" ? await enrichRecentCardWithTcgCsv(card) : card;
+
+  return NextResponse.json({
+    ...enriched,
+    game: "pokemon",
+    language,
+    marketCurrency: enriched.pricing?.tcgplayer?.unit ?? "USD",
+  });
 }
