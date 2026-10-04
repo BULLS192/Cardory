@@ -137,6 +137,7 @@ export async function searchRecentTcgCsv(
         localId: cardNumber,
         name: product.name,
         image: product.imageUrl ?? null,
+        setId: `tcgplayer-${group.groupId}`,
         setName: group.name,
         rarity: field(product, "Rarity") ?? null,
         source: "TCGCSV",
