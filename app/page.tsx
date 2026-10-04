@@ -130,15 +130,17 @@ function buildSmartTags(input: {
 }
 
 function labelVariant(variant: CardVariant) {
-  return variant
-    .replace("foil", "Foil")
-    .replace("reverse-holofoil", "Reverse Holo")
-    .replace("1st-edition-holofoil", "1st Ed. Holo")
-    .replace("1st-edition", "1st Edition")
-    .replace("unlimited-holofoil", "Unlimited Holo")
-    .replace("holofoil", "Holo")
-    .replace("normal", "Normal")
-    .replace("unlimited", "Unlimited");
+  const labels: Record<CardVariant, string> = {
+    normal: "Normal",
+    foil: "Foil",
+    holofoil: "Holo",
+    "reverse-holofoil": "Reverse Holo",
+    "1st-edition": "1st Edition",
+    "1st-edition-holofoil": "1st Ed. Holo",
+    unlimited: "Unlimited",
+    "unlimited-holofoil": "Unlimited Holo",
+  };
+  return labels[variant] ?? variant;
 }
 
 function evaluateRule(card: OwnedCard, rule: SmartRule) {
@@ -315,27 +317,43 @@ export default function Home() {
 
     setSyncing(true);
     try {
-      const ids = [...new Set(state.cards.map((card) => card.tcgdexId))];
+      const syncItems = [
+        ...new Map(
+          state.cards.map((card) => {
+            const game = card.game ?? "pokemon";
+            const language = card.language ?? "English";
+            const key = `${game}|${language}|${card.tcgdexId}`;
+            return [key, { key, cardId: card.tcgdexId, game, language }] as const;
+          })
+        ).values(),
+      ];
       const details = new Map<string, TcgDexCard>();
 
-      for (let i = 0; i < ids.length; i += 8) {
-        const batch = ids.slice(i, i + 8);
+      for (let i = 0; i < syncItems.length; i += 8) {
+        const batch = syncItems.slice(i, i + 8);
         const responses = await Promise.all(
-          batch.map(async (cardId) => {
-            const owned = state.cards.find((card) => card.tcgdexId === cardId);
-            const params = new URLSearchParams();
-            params.set("language", owned?.language ?? "English");
-            params.set("game", owned?.game ?? "pokemon");
-            const response = await fetch(`/api/cards/${encodeURIComponent(cardId)}?${params.toString()}`);
+          batch.map(async (item) => {
+            const params = new URLSearchParams({
+              language: item.language,
+              game: item.game,
+            });
+            const response = await fetch(
+              `/api/cards/${encodeURIComponent(item.cardId)}?${params.toString()}`
+            );
             if (!response.ok) return null;
-            return (await response.json()) as TcgDexCard;
+            return {
+              key: item.key,
+              detail: (await response.json()) as TcgDexCard,
+            };
           })
         );
-        responses.filter(Boolean).forEach((detail) => {
-          const card = detail as TcgDexCard;
-          details.set(card.id, card);
+        responses.filter(Boolean).forEach((result) => {
+          if (!result) return;
+          details.set(result.key, result.detail);
         });
-        if (i + 8 < ids.length) await new Promise((resolve) => setTimeout(resolve, 250));
+        if (i + 8 < syncItems.length) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
       }
 
       const syncedAt = new Date().toISOString();
@@ -343,7 +361,8 @@ export default function Home() {
         ...current,
         lastGlobalPriceSync: syncedAt,
         cards: current.cards.map((owned) => {
-          const detail = details.get(owned.tcgdexId);
+          const syncKey = `${owned.game ?? "pokemon"}|${owned.language ?? "English"}|${owned.tcgdexId}`;
+          const detail = details.get(syncKey);
           if (!detail) return owned;
           const price = extractMarketPrice(detail, owned.variant);
           const marketPrice = price.price;
