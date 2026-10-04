@@ -1,4 +1,6 @@
-export type CardVariant = "normal" | "holofoil" | "reverse-holofoil" | "1st-edition" | "1st-edition-holofoil" | "unlimited" | "unlimited-holofoil";
+export type CardGame = "pokemon" | "riftbound";
+export type CardLanguage = "English" | "Japanese" | "Chinese";
+export type CardVariant = "normal" | "foil" | "holofoil" | "reverse-holofoil" | "1st-edition" | "1st-edition-holofoil" | "unlimited" | "unlimited-holofoil";
 export type CardCondition = "NM" | "LP" | "MP" | "HP" | "DMG";
 export type AcquisitionType = "pack" | "single" | "sealed" | "trade" | "gift" | "other";
 
@@ -19,13 +21,14 @@ export type TcgPriceVariant = {
   midPrice?: number;
   highPrice?: number;
   marketPrice?: number;
-  directLowPrice?: number;
+  directLowPrice?: number | null;
 };
 
 export type TcgPlayerPricing = {
   updated?: number | string;
   unit?: string;
   normal?: TcgPriceVariant;
+  foil?: TcgPriceVariant;
   holofoil?: TcgPriceVariant;
   "reverse-holofoil"?: TcgPriceVariant;
   "1st-edition"?: TcgPriceVariant;
@@ -47,8 +50,12 @@ export type TcgDexCard = {
   dexId?: number[];
   cameoDexIds?: number[];
   stage?: string | null;
+  game?: CardGame;
+  language?: CardLanguage;
+  marketCurrency?: string | null;
   variants?: {
     firstEdition?: boolean;
+    foil?: boolean;
     holo?: boolean;
     normal?: boolean;
     reverse?: boolean;
@@ -78,11 +85,15 @@ export type CardSearchResult = Pick<TcgDexCard, "id" | "localId" | "name" | "ima
   setName?: string;
   rarity?: string | null;
   source?: string;
+  game?: CardGame;
+  language?: CardLanguage;
 };
 
 export type OwnedCard = {
   id: string;
   tcgdexId: string;
+  game?: CardGame;
+  language?: CardLanguage;
   name: string;
   localId: string;
   image?: string | null;
@@ -100,6 +111,7 @@ export type OwnedCard = {
   acquisition?: AcquisitionRecord;
   favorite: boolean;
   marketPrice?: number | null;
+  marketCurrency?: string | null;
   priceSource?: string | null;
   priceUpdatedAt?: string | null;
   addedAt: string;
