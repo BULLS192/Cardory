@@ -24,6 +24,18 @@ export type TcgPriceVariant = {
   directLowPrice?: number | null;
 };
 
+export type CardmarketPricing = {
+  updated?: string;
+  unit?: string;
+  avg?: number | null;
+  low?: number | null;
+  trend?: number | null;
+  avg1?: number | null;
+  avg7?: number | null;
+  avg30?: number | null;
+  [key: string]: string | number | null | undefined;
+};
+
 export type TcgPlayerPricing = {
   updated?: number | string;
   unit?: string;
@@ -67,7 +79,7 @@ export type TcgDexCard = {
     variantId?: string;
     pricing?: {
       tcgplayer?: TcgPlayerPricing;
-      cardmarket?: Record<string, string | number | undefined>;
+      cardmarket?: CardmarketPricing;
     };
   }>;
   set?: {
@@ -77,7 +89,7 @@ export type TcgDexCard = {
   };
   pricing?: {
     tcgplayer?: TcgPlayerPricing;
-    cardmarket?: Record<string, string | number | undefined>;
+    cardmarket?: CardmarketPricing;
   };
 };
 
