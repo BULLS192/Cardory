@@ -9,6 +9,18 @@ export type TcgPriceVariant = {
   directLowPrice?: number;
 };
 
+export type TcgPlayerPricing = {
+  updated?: number | string;
+  unit?: string;
+  normal?: TcgPriceVariant;
+  holofoil?: TcgPriceVariant;
+  "reverse-holofoil"?: TcgPriceVariant;
+  "1st-edition"?: TcgPriceVariant;
+  "1st-edition-holofoil"?: TcgPriceVariant;
+  unlimited?: TcgPriceVariant;
+  "unlimited-holofoil"?: TcgPriceVariant;
+};
+
 export type TcgDexCard = {
   id: string;
   localId: string | number;
@@ -27,24 +39,23 @@ export type TcgDexCard = {
     reverse?: boolean;
     wPromo?: boolean;
   };
+  variants_detailed?: Array<{
+    type?: string;
+    size?: string;
+    variantId?: string;
+    pricing?: {
+      tcgplayer?: TcgPlayerPricing;
+      cardmarket?: Record<string, string | number | undefined>;
+    };
+  }>;
   set?: {
     id: string;
     name: string;
     cardCount?: { official?: number; total?: number };
   };
   pricing?: {
-    tcgplayer?: {
-      updated?: number;
-      unit?: number;
-      normal?: TcgPriceVariant;
-      holofoil?: TcgPriceVariant;
-      "reverse-holofoil"?: TcgPriceVariant;
-      "1st-edition"?: TcgPriceVariant;
-      "1st-edition-holofoil"?: TcgPriceVariant;
-      unlimited?: TcgPriceVariant;
-      "unlimited-holofoil"?: TcgPriceVariant;
-    };
-    cardmarket?: Record<string, number | undefined>;
+    tcgplayer?: TcgPlayerPricing;
+    cardmarket?: Record<string, string | number | undefined>;
   };
 };
 
