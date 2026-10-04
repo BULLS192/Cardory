@@ -4,8 +4,12 @@ const TCGCSV_BASE = "https://tcgcsv.com/tcgplayer/3";
 const USER_AGENT = "PokedexVault/0.1 (github.com/BULLS192/Pokedex)";
 
 const RECENT_GROUPS = [
-  { groupId: 24722, name: "30th Celebration" },
-  { groupId: 24837, name: "30th Celebration Classic Collection" },
+  { groupId: 24722, name: "30th Celebration", aliases: ["30th Celebration"] },
+  {
+    groupId: 24837,
+    name: "30th Celebration Classic Collection",
+    aliases: ["30th Celebration Classic Collection", "30th Classic Collection"],
+  },
 ] as const;
 
 type ExtendedField = {
@@ -50,6 +54,11 @@ function normalizeName(value?: string | null) {
     .replace(/[’']/g, "")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+function comparableProductName(product: TcgCsvProduct) {
+  const raw = product.cleanName || product.name || "";
+  return normalizeName(raw.replace(/\s*-\s*\d+\s*\/\s*\d+\s*$/i, ""));
 }
 
 function normalizeNumber(value?: string | number | null) {
@@ -116,7 +125,7 @@ export async function searchRecentTcgCsv(
       const cardNumber = field(product, "Number");
       if (!cardNumber) continue;
 
-      const productName = normalizeName(product.cleanName || product.name);
+      const productName = comparableProductName(product);
       if (queryName && !productName.includes(queryName)) continue;
       if (!matchesNumber(cardNumber, number)) continue;
 
@@ -243,8 +252,8 @@ export async function enrichRecentCardWithTcgCsv(
   const setName = card.set?.name;
   if (!setName) return card;
 
-  const group = RECENT_GROUPS.find(
-    (item) => normalizeName(item.name) === normalizeName(setName)
+  const group = RECENT_GROUPS.find((item) =>
+    item.aliases.some((alias) => normalizeName(alias) === normalizeName(setName))
   );
   if (!group) return card;
 
@@ -255,7 +264,7 @@ export async function enrichRecentCardWithTcgCsv(
 
   const wantedName = normalizeName(card.name);
   let candidates = products.filter(
-    (product) => normalizeName(product.cleanName || product.name) === wantedName
+    (product) => comparableProductName(product) === wantedName
   );
 
   // The main 30th set preserves printed numbering between sources.
