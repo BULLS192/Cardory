@@ -22,6 +22,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AcquisitionType,
   Binder,
+  CardGame,
+  CardLanguage,
   CardCondition,
   CardSearchResult,
   CardVariant,
@@ -50,9 +52,13 @@ function id() {
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function money(value?: number | null) {
+function money(value?: number | null, currency = "USD") {
   return typeof value === "number"
-    ? new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value)
+    ? new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currency || "USD",
+        currencyDisplay: "code",
+      }).format(value)
     : "—";
 }
 
@@ -70,6 +76,8 @@ function allCardTags(card: Pick<OwnedCard, "tags" | "smartTags">) {
 }
 
 function buildSmartTags(input: {
+  game?: CardGame;
+  language?: CardLanguage;
   name?: string;
   setName?: string;
   rarity?: string | null;
@@ -79,11 +87,13 @@ function buildSmartTags(input: {
   condition?: CardCondition;
   favorite?: boolean;
   marketPrice?: number | null;
+  marketCurrency?: string | null;
   acquisitionType?: string;
   batchName?: string;
   product?: string;
   location?: string;
   seller?: string;
+  purchaseCurrency?: string;
 }) {
   const tags = new Set<string>();
   const add = (prefix: string, value?: string | null) => {
@@ -92,6 +102,8 @@ function buildSmartTags(input: {
     if (normalized) tags.add(prefix ? `${prefix}-${normalized}` : normalized);
   };
 
+  if (input.game) tags.add(normalizeTag(input.game));
+  if (input.language) tags.add(normalizeTag(input.language));
   add("", input.name);
   add("set", input.setName);
   add("rarity", input.rarity);
@@ -105,6 +117,8 @@ function buildSmartTags(input: {
   if (input.product) add("product", input.product);
   if (input.location) add("location", input.location);
   if (input.seller) add("seller", input.seller);
+  if (input.purchaseCurrency) add("paid-in", input.purchaseCurrency);
+  if (input.marketCurrency) add("market-in", input.marketCurrency);
 
   const value = input.marketPrice ?? 0;
   if (value >= 100) tags.add("value-100-plus");
@@ -117,6 +131,7 @@ function buildSmartTags(input: {
 
 function labelVariant(variant: CardVariant) {
   return variant
+    .replace("foil", "Foil")
     .replace("reverse-holofoil", "Reverse Holo")
     .replace("1st-edition-holofoil", "1st Ed. Holo")
     .replace("1st-edition", "1st Edition")
@@ -198,10 +213,19 @@ export default function Home() {
         const parsed = JSON.parse(saved) as CollectionState;
         setState({
           ...parsed,
-          cards: (parsed.cards ?? []).map((card) => ({
+          cards: (parsed.cards ?? []).map((card) => {
+            const game = card.game ?? "pokemon";
+            const language = card.language ?? "English";
+            const marketCurrency = card.marketCurrency ?? "USD";
+            return {
             ...card,
+            game,
+            language,
+            marketCurrency,
             tags: card.tags ?? [],
             smartTags: buildSmartTags({
+              game,
+              language,
               name: card.name,
               setName: card.setName,
               rarity: card.rarity,
@@ -211,13 +235,16 @@ export default function Home() {
               condition: card.condition,
               favorite: card.favorite,
               marketPrice: card.marketPrice,
+              marketCurrency,
               acquisitionType: card.acquisition?.type,
               batchName: card.acquisition?.batchName,
               product: card.acquisition?.product,
               location: card.acquisition?.location,
               seller: card.acquisition?.seller,
+              purchaseCurrency: card.acquisition?.currency,
             }),
-          })),
+          };
+          }),
         });
       }
     } catch {
@@ -258,6 +285,9 @@ export default function Home() {
         card.setName,
         card.localId,
         card.rarity,
+        card.game,
+        card.language,
+        card.marketCurrency,
         allCardTags(card).join(" "),
         card.acquisition?.batchName,
         card.acquisition?.product,
@@ -292,7 +322,11 @@ export default function Home() {
         const batch = ids.slice(i, i + 8);
         const responses = await Promise.all(
           batch.map(async (cardId) => {
-            const response = await fetch(`/api/cards/${encodeURIComponent(cardId)}`);
+            const owned = state.cards.find((card) => card.tcgdexId === cardId);
+            const params = new URLSearchParams();
+            params.set("language", owned?.language ?? "English");
+            params.set("game", owned?.game ?? "pokemon");
+            const response = await fetch(`/api/cards/${encodeURIComponent(cardId)}?${params.toString()}`);
             if (!response.ok) return null;
             return (await response.json()) as TcgDexCard;
           })
@@ -313,12 +347,16 @@ export default function Home() {
           if (!detail) return owned;
           const price = extractMarketPrice(detail, owned.variant);
           const marketPrice = price.price;
+          const marketCurrency = price.currency ?? owned.marketCurrency ?? "USD";
           return {
             ...owned,
             marketPrice,
+            marketCurrency,
             priceSource: price.source,
             priceUpdatedAt: price.updatedAt ?? syncedAt,
             smartTags: buildSmartTags({
+              game: owned.game ?? "pokemon",
+              language: owned.language ?? "English",
               name: owned.name,
               setName: owned.setName,
               rarity: owned.rarity,
@@ -328,11 +366,13 @@ export default function Home() {
               condition: owned.condition,
               favorite: owned.favorite,
               marketPrice,
+              marketCurrency,
               acquisitionType: owned.acquisition?.type,
               batchName: owned.acquisition?.batchName,
               product: owned.acquisition?.product,
               location: owned.acquisition?.location,
               seller: owned.acquisition?.seller,
+              purchaseCurrency: owned.acquisition?.currency,
             }),
           };
         }),
@@ -351,6 +391,8 @@ export default function Home() {
               ...card,
               favorite: !card.favorite,
               smartTags: buildSmartTags({
+                game: card.game ?? "pokemon",
+                language: card.language ?? "English",
                 name: card.name,
                 setName: card.setName,
                 rarity: card.rarity,
@@ -360,11 +402,13 @@ export default function Home() {
                 condition: card.condition,
                 favorite: !card.favorite,
                 marketPrice: card.marketPrice,
+                marketCurrency: card.marketCurrency,
                 acquisitionType: card.acquisition?.type,
                 batchName: card.acquisition?.batchName,
                 product: card.acquisition?.product,
                 location: card.acquisition?.location,
                 seller: card.acquisition?.seller,
+                purchaseCurrency: card.acquisition?.currency,
               }),
             }
           : card
@@ -523,9 +567,11 @@ export default function Home() {
                           <strong>{card.name}</strong>
                           <span>{card.setName ?? "Unknown set"} · #{card.localId}</span>
                         </div>
-                        <b>{money(card.marketPrice)}</b>
+                        <b>{money(card.marketPrice, card.marketCurrency ?? "USD")}</b>
                       </div>
                       <div className="chips">
+                        <span className="chip neutral">{card.game === "riftbound" ? "Riftbound" : "Pokémon"}</span>
+                        <span className="chip neutral">{card.language ?? "English"}</span>
                         <span className="chip neutral">{labelVariant(card.variant)}</span>
                         <span className="chip neutral">{card.condition}</span>
                         {card.quantity > 1 && <span className="chip neutral">×{card.quantity}</span>}
@@ -553,10 +599,10 @@ export default function Home() {
                         <td><input type="checkbox" checked={selectedCardIds.includes(card.id)} onChange={(e) => setSelectedCardIds((current) => e.target.checked ? [...current, card.id] : current.filter((id) => id !== card.id))} /></td>
                         <td><div className="table-card"><CardArt card={card} compact /><div><strong>{card.name}</strong><span>#{card.localId} · {card.rarity ?? "—"}</span></div></div></td>
                         <td>{card.setName ?? "—"}</td>
-                        <td>{labelVariant(card.variant)} · {card.condition}</td>
+                        <td>{card.game === "riftbound" ? "Riftbound" : "Pokémon"} · {card.language ?? "English"} · {labelVariant(card.variant)} · {card.condition}</td>
                         <td><div className="tags">{allCardTags(card).slice(0, 4).map((tag) => <span key={tag}>#{tag}</span>)}</div></td>
                         <td>{card.quantity}</td>
-                        <td><strong>{money(card.marketPrice)}</strong></td>
+                        <td><strong>{money(card.marketPrice, card.marketCurrency ?? "USD")}</strong></td>
                         <td><button className="icon-button" onClick={() => toggleFavorite(card.id)}><Star size={16} fill={card.favorite ? "currentColor" : "none"} /></button></td>
                       </tr>
                     ))}
@@ -577,10 +623,11 @@ export default function Home() {
 
         {tab === "add" && (
           <AddCard
-            onAdd={(card) => {
+            onAdd={(card, keepAdding) => {
               setState((current) => ({ ...current, cards: [card, ...current.cards] }));
-              setTab("cards");
+              if (!keepAdding) setTab("cards");
             }}
+            onDone={() => setTab("cards")}
           />
         )}
       </section>
@@ -663,7 +710,7 @@ function Dashboard({
       <div className="stat-grid">
         <Stat icon={<Grid2X2 size={18} />} label="Unique cards" value={cards.length.toLocaleString()} />
         <Stat icon={<Tags size={18} />} label="Physical cards" value={totalCards.toLocaleString()} />
-        <Stat icon={<CircleDollarSign size={18} />} label="Market value" value={money(collectionValue)} />
+        <Stat icon={<CircleDollarSign size={18} />} label="Market value (USD)" value={money(collectionValue, "USD")} />
         <Stat icon={<BookOpen size={18} />} label="Binders" value={binders.length.toLocaleString()} />
       </div>
 
@@ -681,7 +728,7 @@ function Dashboard({
                 <div className="recent-row" key={card.id}>
                   <CardArt card={card} compact />
                   <div><strong>{card.name}</strong><span>{card.setName} · #{card.localId}</span></div>
-                  <b>{money(card.marketPrice)}</b>
+                  <b>{money(card.marketPrice, card.marketCurrency ?? "USD")}</b>
                 </div>
               ))}
             </div>
@@ -719,7 +766,19 @@ function Empty({ title, body, action }: { title: string; body: string; action: (
   );
 }
 
-function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
+function AddCard({
+  onAdd,
+  onDone,
+}: {
+  onAdd: (card: OwnedCard, keepAdding: boolean) => void;
+  onDone: () => void;
+}) {
+  const [game, setGame] = useState<CardGame>("pokemon");
+  const [language, setLanguage] = useState<CardLanguage>("English");
+  const [openingSession, setOpeningSession] = useState(false);
+  const [sessionId, setSessionId] = useState(() => id());
+  const [sessionCardCount, setSessionCardCount] = useState(0);
+  const [sessionMarketValue, setSessionMarketValue] = useState(0);
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
   const [results, setResults] = useState<CardSearchResult[]>([]);
@@ -735,7 +794,11 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
   const [batchName, setBatchName] = useState("");
   const [product, setProduct] = useState("");
   const [totalCost, setTotalCost] = useState("");
-  const [purchaseDate, setPurchaseDate] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState(() => {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+    return local.toISOString().slice(0, 10);
+  });
   const [purchaseLocation, setPurchaseLocation] = useState("");
   const [seller, setSeller] = useState("");
   const [currency, setCurrency] = useState("SGD");
@@ -743,6 +806,8 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
   const pricing = selected ? extractMarketPrice(selected, variant) : null;
   const autoTags = selected
     ? buildSmartTags({
+        game,
+        language,
         name: selected.name,
         setName: selected.set?.name,
         rarity: selected.rarity,
@@ -752,11 +817,13 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
         condition,
         favorite,
         marketPrice: pricing?.price,
+        marketCurrency: pricing?.currency,
         acquisitionType,
         batchName,
         product,
         location: purchaseLocation,
         seller,
+        purchaseCurrency: currency,
       })
     : [];
 
@@ -769,6 +836,8 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
       const params = new URLSearchParams();
       if (name.trim()) params.set("name", name.trim());
       if (number.trim()) params.set("number", number.trim());
+      params.set("game", game);
+      params.set("language", language);
       const response = await fetch(`/api/cards/search?${params.toString()}`);
       const data = await response.json();
       setResults(data.results ?? []);
@@ -780,7 +849,8 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
   async function selectCard(result: CardSearchResult) {
     setLoading(true);
     try {
-      const response = await fetch(`/api/cards/${encodeURIComponent(result.id)}`);
+      const params = new URLSearchParams({ game, language });
+      const response = await fetch(`/api/cards/${encodeURIComponent(result.id)}?${params.toString()}`);
       const card = (await response.json()) as TcgDexCard;
       setSelected(card);
       const variants = availableVariants(card);
@@ -795,6 +865,8 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
     const owned: OwnedCard = {
       id: id(),
       tcgdexId: selected.id,
+      game,
+      language,
       name: selected.name,
       localId: String(selected.localId),
       image: selected.image,
@@ -811,9 +883,11 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
       notes: notes.trim(),
       acquisition: {
         type: acquisitionType,
-        batchId: batchName.trim() || product.trim() || purchaseDate || purchaseLocation
-          ? `batch-${[batchName, product, purchaseDate, purchaseLocation].map(normalizeTag).filter(Boolean).join("-")}`
-          : undefined,
+        batchId: openingSession
+          ? sessionId
+          : batchName.trim() || product.trim() || purchaseDate || purchaseLocation
+            ? `batch-${[batchName, product, purchaseDate, purchaseLocation].map(normalizeTag).filter(Boolean).join("-")}`
+            : undefined,
         batchName: batchName.trim() || undefined,
         product: product.trim() || undefined,
         totalCost: totalCost.trim() ? Number(totalCost) : null,
@@ -824,26 +898,87 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
       },
       favorite,
       marketPrice: pricing?.price ?? null,
+      marketCurrency: pricing?.currency ?? "USD",
       priceSource: pricing?.source ?? null,
       priceUpdatedAt: pricing?.updatedAt ?? new Date().toISOString(),
       addedAt: new Date().toISOString(),
     };
-    onAdd(owned);
+    if (openingSession) {
+      setSessionCardCount((count) => count + Math.max(1, quantity));
+      setSessionMarketValue((value) => value + (pricing?.price ?? 0) * Math.max(1, quantity));
+      setName("");
+      setNumber("");
+      setResults([]);
+      setSelected(null);
+      setVariant("normal");
+      setCondition("NM");
+      setQuantity(1);
+      setTags("");
+      setNotes("");
+      setFavorite(false);
+      onAdd(owned, true);
+    } else {
+      onAdd(owned, false);
+    }
+  }
+
+  function startOpeningSession() {
+    setOpeningSession(true);
+    setSessionId(id());
+    setSessionCardCount(0);
+    setSessionMarketValue(0);
+    setAcquisitionType("pack");
+  }
+
+  function finishOpeningSession() {
+    setOpeningSession(false);
+    setSessionId(id());
+    onDone();
   }
 
   return (
     <section>
       <PageHeader
-        eyebrow="Manual entry"
-        title="Add a card"
-        description="Type the card name and/or number. We fetch the artwork, set data, metadata and current market price for you."
+        eyebrow={openingSession ? "Opening session" : "Manual entry"}
+        title={openingSession ? "Log new pulls" : "Add a card"}
+        description={
+          openingSession
+            ? "Enter the opening details once, then add pulls one after another. Shared purchase data stays attached to every card in this session."
+            : "Type the card name and/or number. We fetch the artwork, set data, metadata and current market price for you."
+        }
+        action={
+          openingSession
+            ? <button className="ghost" onClick={finishOpeningSession}>Finish session</button>
+            : <button className="primary" onClick={startOpeningSession}><Sparkles size={17} /> Start opening session</button>
+        }
       />
+
+      {openingSession && (
+        <div className="opening-session-bar">
+          <div><strong>{sessionCardCount}</strong><span>cards logged</span></div>
+          <div><strong>{money(sessionMarketValue, "USD")}</strong><span>current market value</span></div>
+          <div><strong>{batchName || "New opening"}</strong><span>{product || "Shared batch details will carry forward"}</span></div>
+        </div>
+      )}
 
       <div className="add-layout">
         <div>
           <form className="panel search-panel" onSubmit={runSearch}>
             <div className="form-grid two">
-              <label><span>Card name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Pikachu" /></label>
+              <label><span>Card game</span>
+                <select value={game} onChange={(e) => { setGame(e.target.value as CardGame); setResults([]); setSelected(null); }}>
+                  <option value="pokemon">Pokémon</option>
+                  <option value="riftbound">Riftbound</option>
+                </select>
+              </label>
+              <label><span>Card language</span>
+                <select value={language} onChange={(e) => { setLanguage(e.target.value as CardLanguage); setResults([]); setSelected(null); }}>
+                  <option value="English">English</option>
+                  <option value="Japanese">Japanese</option>
+                  <option value="Chinese">Chinese</option>
+                </select>
+              </label>
+              <label><span>Card name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder={game === "riftbound" ? "e.g. Jinx" : "e.g. Pikachu"} /></label>
               <label><span>Card number</span><input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 173" /></label>
             </div>
             <button className="primary" type="submit" disabled={loading}><Search size={17} /> {loading ? "Searching…" : "Find card"}</button>
@@ -854,7 +989,7 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
               {results.map((result) => (
                 <button className="search-result" key={result.id} onClick={() => void selectCard(result)}>
                   {result.image ? <img src={cardImage(result.image, "low") ?? ""} alt="" /> : <div className="result-placeholder" />}
-                  <div><strong>{result.name}</strong><span>#{result.localId} · {result.setName ?? result.id}</span></div>
+                  <div><strong>{result.name}</strong><span>#{result.localId} · {result.setName ?? result.id} · {result.language ?? language}</span></div>
                   <ChevronRight size={18} />
                 </button>
               ))}
@@ -872,18 +1007,28 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
           ) : (
             <article className="panel add-preview">
               <div className="preview-top">
-                {selected.image ? <img src={cardImage(selected.image, "high") ?? ""} alt={selected.name} /> : null}
+                {selected.image ? (
+                  <img src={cardImage(selected.image, "high") ?? ""} alt={selected.name} />
+                ) : (
+                  <div className="restricted-art">
+                    <Sparkles size={24} />
+                    <strong>{game === "riftbound" ? "Riftbound artwork pending Riot API" : "Artwork unavailable"}</strong>
+                    <span>{game === "riftbound" ? "Catalogue and live price data are available now." : "This source does not currently provide an image."}</span>
+                  </div>
+                )}
                 <div>
                   <span className="eyebrow">{selected.set?.name}</span>
                   <h2>{selected.name}</h2>
                   <p>#{selected.localId} · {selected.rarity ?? "Unknown rarity"}</p>
                   <div className="metadata">
+                    <span>{game === "riftbound" ? "Riftbound" : "Pokémon"}</span>
+                    <span>{language}</span>
                     {selected.types?.map((type) => <span key={type}>{type}</span>)}
                     {selected.illustrator && <span>Art: {selected.illustrator}</span>}
                   </div>
                   <div className="price-card">
                     <span>Current market</span>
-                    <strong>{money(pricing?.price)}</strong>
+                    <strong>{money(pricing?.price, pricing?.currency ?? "USD")}</strong>
                     <small>{pricing?.source ?? "No TCGplayer price available for this variant"}</small>
                   </div>
                 </div>
@@ -907,7 +1052,7 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
               <div className="smart-tag-preview">
                 <div>
                   <strong>Smart tags</strong>
-                  <span>Generated automatically from the card, set, rarity, type, variant, condition and value.</span>
+                  <span>Generated automatically from game, language, card, set, rarity, type/domain, variant, condition, value and acquisition data.</span>
                 </div>
                 <div className="tags">{autoTags.slice(0, 10).map((tag) => <span key={tag}>#{tag}</span>)}</div>
               </div>
@@ -953,7 +1098,7 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
               <label className="check-label"><input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} /> Add to favorites</label>
               <div className="form-actions">
                 <button className="ghost" onClick={() => setSelected(null)}>Back to results</button>
-                <button className="primary" onClick={save}><Check size={17} /> Add to my cards</button>
+                <button className="primary" onClick={save}><Check size={17} /> {openingSession ? "Add pull & continue" : "Add to my cards"}</button>
               </div>
             </article>
           )}
@@ -1020,6 +1165,8 @@ function BulkEditPanel({
         notes: nextNotes,
         acquisition,
         smartTags: buildSmartTags({
+          game: card.game ?? "pokemon",
+          language: card.language ?? "English",
           name: card.name,
           setName: card.setName,
           rarity: card.rarity,
@@ -1029,11 +1176,13 @@ function BulkEditPanel({
           condition: card.condition,
           favorite: card.favorite,
           marketPrice: card.marketPrice,
+          marketCurrency: card.marketCurrency,
           acquisitionType: acquisition?.type,
           batchName: acquisition?.batchName,
           product: acquisition?.product,
           location: acquisition?.location,
           seller: acquisition?.seller,
+          purchaseCurrency: acquisition?.currency,
         }),
       };
     });
