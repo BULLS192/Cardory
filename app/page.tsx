@@ -771,7 +771,7 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
       acquisition: {
         type: acquisitionType,
         batchId: batchName.trim() || product.trim() || purchaseDate || purchaseLocation
-          ? id()
+          ? `batch-${[batchName, product, purchaseDate, purchaseLocation].map(normalizeTag).filter(Boolean).join("-")}`
           : undefined,
         batchName: batchName.trim() || undefined,
         product: product.trim() || undefined,
