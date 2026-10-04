@@ -150,7 +150,9 @@ export default function Home() {
   }, [state, ready]);
 
   useEffect(() => {
-    if (!ready || !state.cards.length || !isPriceStale(state.lastGlobalPriceSync, 6)) return;
+    if (!ready || !state.cards.length) return;
+    const hasMissingPrices = state.cards.some((card) => card.marketPrice == null);
+    if (!hasMissingPrices && !isPriceStale(state.lastGlobalPriceSync, 6)) return;
     void syncPrices(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
@@ -193,7 +195,8 @@ export default function Home() {
 
   async function syncPrices(force = true) {
     if (!state.cards.length || syncing) return;
-    if (!force && !isPriceStale(state.lastGlobalPriceSync, 6)) return;
+    const hasMissingPrices = state.cards.some((card) => card.marketPrice == null);
+    if (!force && !hasMissingPrices && !isPriceStale(state.lastGlobalPriceSync, 6)) return;
 
     setSyncing(true);
     try {
