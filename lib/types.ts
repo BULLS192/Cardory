@@ -1,5 +1,18 @@
 export type CardVariant = "normal" | "holofoil" | "reverse-holofoil" | "1st-edition" | "1st-edition-holofoil" | "unlimited" | "unlimited-holofoil";
 export type CardCondition = "NM" | "LP" | "MP" | "HP" | "DMG";
+export type AcquisitionType = "pack" | "single" | "sealed" | "trade" | "gift" | "other";
+
+export type AcquisitionRecord = {
+  type?: AcquisitionType;
+  batchId?: string;
+  batchName?: string;
+  product?: string;
+  totalCost?: number | null;
+  currency?: string;
+  date?: string;
+  location?: string;
+  seller?: string;
+};
 
 export type TcgPriceVariant = {
   lowPrice?: number;
@@ -31,6 +44,8 @@ export type TcgDexCard = {
   illustrator?: string | null;
   hp?: number | null;
   types?: string[];
+  dexId?: number[];
+  cameoDexIds?: number[];
   stage?: string | null;
   variants?: {
     firstEdition?: boolean;
@@ -80,7 +95,9 @@ export type OwnedCard = {
   condition: CardCondition;
   quantity: number;
   tags: string[];
+  smartTags?: string[];
   notes: string;
+  acquisition?: AcquisitionRecord;
   favorite: boolean;
   marketPrice?: number | null;
   priceSource?: string | null;
