@@ -1,4 +1,4 @@
-import { CardLanguage, CardVariant, TcgDexCard, TcgPlayerPricing } from "./types";
+import { CardLanguage, CardVariant, CardmarketPricing, TcgDexCard, TcgPlayerPricing } from "./types";
 
 export const TCGDEX_ROOT = "https://api.tcgdex.net/v2";
 
@@ -67,6 +67,16 @@ function selectFromPricing(tcg: TcgPlayerPricing, key: CardVariant) {
   };
 }
 
+function selectFromCardmarket(cardmarket: CardmarketPricing) {
+  const price = cardmarket.trend ?? cardmarket.avg1 ?? cardmarket.avg7 ?? cardmarket.avg ?? cardmarket.low ?? null;
+  if (typeof price !== "number") return null;
+  return {
+    price,
+    currency: cardmarket.unit || "EUR",
+    updatedAt: normalizeUpdatedAt(cardmarket.updated),
+  };
+}
+
 export function extractMarketPrice(card: TcgDexCard, variant: CardVariant) {
   const sources: TcgPlayerPricing[] = [
     ...(card.pricing?.tcgplayer ? [card.pricing.tcgplayer] : []),
@@ -75,7 +85,14 @@ export function extractMarketPrice(card: TcgDexCard, variant: CardVariant) {
       .filter((entry): entry is TcgPlayerPricing => Boolean(entry)),
   ];
 
-  if (!sources.length) {
+  const cardmarketSources: CardmarketPricing[] = [
+    ...(card.pricing?.cardmarket ? [card.pricing.cardmarket] : []),
+    ...(card.variants_detailed ?? [])
+      .map((entry) => entry.pricing?.cardmarket)
+      .filter((entry): entry is CardmarketPricing => Boolean(entry)),
+  ];
+
+  if (!sources.length && !cardmarketSources.length) {
     return {
       price: null,
       currency: card.marketCurrency ?? null,
@@ -125,9 +142,21 @@ export function extractMarketPrice(card: TcgDexCard, variant: CardVariant) {
     }
   }
 
+  for (const source of cardmarketSources) {
+    const match = selectFromCardmarket(source);
+    if (match) {
+      return {
+        price: match.price,
+        currency: match.currency,
+        source: "Cardmarket via TCGdex",
+        updatedAt: match.updatedAt,
+      };
+    }
+  }
+
   return {
     price: null,
-    currency: sources[0]?.unit || card.marketCurrency || "USD",
+    currency: sources[0]?.unit || cardmarketSources[0]?.unit || card.marketCurrency || null,
     source: null,
     updatedAt: null,
   };
