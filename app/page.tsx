@@ -269,10 +269,16 @@ export default function Home() {
   }, [ready]);
 
   const totalCards = state.cards.reduce((sum, card) => sum + card.quantity, 0);
-  const collectionValue = state.cards.reduce(
-    (sum, card) => sum + (card.marketPrice ?? 0) * card.quantity,
-    0
-  );
+  const collectionValue = Object.entries(
+    state.cards.reduce<Record<string, number>>((totals, card) => {
+      if (card.marketPrice == null) return totals;
+      const currency = card.marketCurrency ?? "USD";
+      totals[currency] = (totals[currency] ?? 0) + card.marketPrice * card.quantity;
+      return totals;
+    }, {})
+  )
+    .map(([currency, value]) => money(value, currency))
+    .join(" · ") || "—";
 
   const allTags = useMemo(
     () => [...new Set(state.cards.flatMap((card) => allCardTags(card)))].sort(),
@@ -710,7 +716,7 @@ function Dashboard({
   cards: OwnedCard[];
   binders: Binder[];
   totalCards: number;
-  collectionValue: number;
+  collectionValue: string;
   onAdd: () => void;
   onCards: () => void;
 }) {
@@ -729,7 +735,7 @@ function Dashboard({
       <div className="stat-grid">
         <Stat icon={<Grid2X2 size={18} />} label="Unique cards" value={cards.length.toLocaleString()} />
         <Stat icon={<Tags size={18} />} label="Physical cards" value={totalCards.toLocaleString()} />
-        <Stat icon={<CircleDollarSign size={18} />} label="Market value (USD)" value={money(collectionValue, "USD")} />
+        <Stat icon={<CircleDollarSign size={18} />} label="Market value" value={collectionValue} />
         <Stat icon={<BookOpen size={18} />} label="Binders" value={binders.length.toLocaleString()} />
       </div>
 
@@ -797,7 +803,7 @@ function AddCard({
   const [openingSession, setOpeningSession] = useState(false);
   const [sessionId, setSessionId] = useState(() => id());
   const [sessionCardCount, setSessionCardCount] = useState(0);
-  const [sessionMarketValue, setSessionMarketValue] = useState(0);
+  const [sessionMarketTotals, setSessionMarketTotals] = useState<Record<string, number>>({});
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
   const [results, setResults] = useState<CardSearchResult[]>([]);
@@ -924,7 +930,14 @@ function AddCard({
     };
     if (openingSession) {
       setSessionCardCount((count) => count + Math.max(1, quantity));
-      setSessionMarketValue((value) => value + (pricing?.price ?? 0) * Math.max(1, quantity));
+      if (pricing?.price != null) {
+        const priceCurrency = pricing.currency ?? "USD";
+        setSessionMarketTotals((totals) => ({
+          ...totals,
+          [priceCurrency]:
+            (totals[priceCurrency] ?? 0) + pricing.price! * Math.max(1, quantity),
+        }));
+      }
       setName("");
       setNumber("");
       setResults([]);
@@ -945,7 +958,7 @@ function AddCard({
     setOpeningSession(true);
     setSessionId(id());
     setSessionCardCount(0);
-    setSessionMarketValue(0);
+    setSessionMarketTotals({});
     setAcquisitionType("pack");
   }
 
@@ -975,7 +988,14 @@ function AddCard({
       {openingSession && (
         <div className="opening-session-bar">
           <div><strong>{sessionCardCount}</strong><span>cards logged</span></div>
-          <div><strong>{money(sessionMarketValue, "USD")}</strong><span>current market value</span></div>
+          <div>
+            <strong>
+              {Object.entries(sessionMarketTotals)
+                .map(([priceCurrency, value]) => money(value, priceCurrency))
+                .join(" · ") || "—"}
+            </strong>
+            <span>current market value</span>
+          </div>
           <div><strong>{batchName || "New opening"}</strong><span>{product || "Shared batch details will carry forward"}</span></div>
         </div>
       )}
