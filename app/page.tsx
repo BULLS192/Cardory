@@ -56,7 +56,56 @@ function money(value?: number | null) {
 }
 
 function normalizeTag(tag: string) {
-  return tag.trim().replace(/^#/, "").toLowerCase().replace(/\s+/g, "-");
+  return tag
+    .trim()
+    .replace(/^#/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function allCardTags(card: Pick<OwnedCard, "tags" | "smartTags">) {
+  return [...new Set([...(card.smartTags ?? []), ...(card.tags ?? [])])];
+}
+
+function buildSmartTags(input: {
+  name?: string;
+  setName?: string;
+  rarity?: string | null;
+  illustrator?: string | null;
+  types?: string[];
+  variant?: CardVariant;
+  condition?: CardCondition;
+  favorite?: boolean;
+  marketPrice?: number | null;
+  acquisitionType?: string;
+  product?: string;
+}) {
+  const tags = new Set<string>();
+  const add = (prefix: string, value?: string | null) => {
+    if (!value) return;
+    const normalized = normalizeTag(value);
+    if (normalized) tags.add(prefix ? `${prefix}-${normalized}` : normalized);
+  };
+
+  add("", input.name);
+  add("set", input.setName);
+  add("rarity", input.rarity);
+  add("artist", input.illustrator);
+  input.types?.forEach((type) => add("type", type));
+  if (input.variant) add("variant", labelVariant(input.variant));
+  if (input.condition) add("condition", input.condition);
+  if (input.favorite) tags.add("favorite");
+  if (input.acquisitionType) add("source", input.acquisitionType);
+  if (input.product) add("product", input.product);
+
+  const value = input.marketPrice ?? 0;
+  if (value >= 100) tags.add("value-100-plus");
+  else if (value >= 50) tags.add("value-50-plus");
+  else if (value >= 20) tags.add("value-20-plus");
+  else if (value >= 5) tags.add("value-5-plus");
+
+  return [...tags].sort();
 }
 
 function labelVariant(variant: CardVariant) {
@@ -72,7 +121,7 @@ function labelVariant(variant: CardVariant) {
 
 function evaluateRule(card: OwnedCard, rule: SmartRule) {
   let candidate: string | number | boolean = "";
-  if (rule.field === "tag") candidate = card.tags.join(" ");
+  if (rule.field === "tag") candidate = allCardTags(card).join(" ");
   if (rule.field === "name") candidate = card.name;
   if (rule.field === "set") candidate = card.setName ?? "";
   if (rule.field === "rarity") candidate = card.rarity ?? "";
@@ -133,6 +182,7 @@ export default function Home() {
   const [tagFilter, setTagFilter] = useState("");
   const [sort, setSort] = useState<"added" | "name" | "value" | "set">("added");
   const [syncing, setSyncing] = useState(false);
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
 
   useEffect(() => {
     try {
@@ -164,7 +214,7 @@ export default function Home() {
   );
 
   const allTags = useMemo(
-    () => [...new Set(state.cards.flatMap((card) => card.tags))].sort(),
+    () => [...new Set(state.cards.flatMap((card) => allCardTags(card)))].sort(),
     [state.cards]
   );
 
@@ -176,12 +226,15 @@ export default function Home() {
         card.setName,
         card.localId,
         card.rarity,
-        card.tags.join(" "),
+        allCardTags(card).join(" "),
+        card.acquisition?.batchName,
+        card.acquisition?.product,
+        card.acquisition?.location,
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
-      return (!q || haystack.includes(q)) && (!tagFilter || card.tags.includes(tagFilter));
+      return (!q || haystack.includes(q)) && (!tagFilter || allCardTags(card).includes(tagFilter));
     });
 
     cards = [...cards].sort((a, b) => {
@@ -227,11 +280,25 @@ export default function Home() {
           const detail = details.get(owned.tcgdexId);
           if (!detail) return owned;
           const price = extractMarketPrice(detail, owned.variant);
+          const marketPrice = price.price;
           return {
             ...owned,
-            marketPrice: price.price,
+            marketPrice,
             priceSource: price.source,
             priceUpdatedAt: price.updatedAt ?? syncedAt,
+            smartTags: buildSmartTags({
+              name: owned.name,
+              setName: owned.setName,
+              rarity: owned.rarity,
+              illustrator: owned.illustrator,
+              types: owned.types,
+              variant: owned.variant,
+              condition: owned.condition,
+              favorite: owned.favorite,
+              marketPrice,
+              acquisitionType: owned.acquisition?.type,
+              product: owned.acquisition?.product,
+            }),
           };
         }),
       }));
@@ -244,7 +311,25 @@ export default function Home() {
     setState((current) => ({
       ...current,
       cards: current.cards.map((card) =>
-        card.id === cardId ? { ...card, favorite: !card.favorite } : card
+        card.id === cardId
+          ? {
+              ...card,
+              favorite: !card.favorite,
+              smartTags: buildSmartTags({
+                name: card.name,
+                setName: card.setName,
+                rarity: card.rarity,
+                illustrator: card.illustrator,
+                types: card.types,
+                variant: card.variant,
+                condition: card.condition,
+                favorite: !card.favorite,
+                marketPrice: card.marketPrice,
+                acquisitionType: card.acquisition?.type,
+                product: card.acquisition?.product,
+              }),
+            }
+          : card
       ),
     }));
   }
@@ -258,6 +343,7 @@ export default function Home() {
         cardIds: binder.cardIds.filter((id) => id !== cardId),
       })),
     }));
+    setSelectedCardIds((current) => current.filter((id) => id !== cardId));
   }
 
   return (
@@ -339,12 +425,56 @@ export default function Home() {
               </div>
             </div>
 
+            {!!filteredCards.length && (
+              <div className="selection-tools">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={filteredCards.length > 0 && filteredCards.every((card) => selectedCardIds.includes(card.id))}
+                    onChange={(e) =>
+                      setSelectedCardIds(
+                        e.target.checked
+                          ? [...new Set([...selectedCardIds, ...filteredCards.map((card) => card.id)])]
+                          : selectedCardIds.filter((id) => !filteredCards.some((card) => card.id === id))
+                      )
+                    }
+                  />
+                  Select all shown
+                </label>
+                <span>{selectedCardIds.length} selected</span>
+                {!!selectedCardIds.length && <button className="text-button" onClick={() => setSelectedCardIds([])}>Clear selection</button>}
+              </div>
+            )}
+
+            {!!selectedCardIds.length && (
+              <BulkEditPanel
+                count={selectedCardIds.length}
+                onApply={(update) => {
+                  setState((current) => ({
+                    ...current,
+                    cards: current.cards.map((card) => selectedCardIds.includes(card.id) ? update(card) : card),
+                  }));
+                }}
+              />
+            )}
+
             {!filteredCards.length ? (
               <Empty title="No cards found" body={state.cards.length ? "Try changing your filters." : "Add your first card to start the vault."} action={() => setTab("add")} />
             ) : view === "gallery" ? (
               <div className="card-grid">
                 {filteredCards.map((card) => (
-                  <article className="collection-card" key={card.id}>
+                  <article className={`collection-card ${selectedCardIds.includes(card.id) ? "selected" : ""}`} key={card.id}>
+                    <label className="select-card">
+                      <input
+                        type="checkbox"
+                        checked={selectedCardIds.includes(card.id)}
+                        onChange={(e) =>
+                          setSelectedCardIds((current) =>
+                            e.target.checked ? [...current, card.id] : current.filter((id) => id !== card.id)
+                          )
+                        }
+                      />
+                    </label>
                     <button className={"favorite " + (card.favorite ? "on" : "")} onClick={() => toggleFavorite(card.id)} aria-label="Toggle favorite">
                       <Heart size={17} fill={card.favorite ? "currentColor" : "none"} />
                     </button>
@@ -362,8 +492,13 @@ export default function Home() {
                         <span className="chip neutral">{card.condition}</span>
                         {card.quantity > 1 && <span className="chip neutral">×{card.quantity}</span>}
                       </div>
-                      {!!card.tags.length && (
-                        <div className="tags">{card.tags.slice(0, 4).map((tag) => <span key={tag}>#{tag}</span>)}</div>
+                      {!!allCardTags(card).length && (
+                        <div className="tags">{allCardTags(card).slice(0, 6).map((tag) => <span key={tag}>#{tag}</span>)}</div>
+                      )}
+                      {card.acquisition && (card.acquisition.product || card.acquisition.location || card.acquisition.date) && (
+                        <div className="acquisition-line">
+                          {[card.acquisition.product, card.acquisition.date, card.acquisition.location].filter(Boolean).join(" · ")}
+                        </div>
                       )}
                       <button className="danger-link" onClick={() => removeCard(card.id)}><Trash2 size={14} /> Remove</button>
                     </div>
@@ -373,14 +508,15 @@ export default function Home() {
             ) : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Card</th><th>Set</th><th>Variant</th><th>Tags</th><th>Qty</th><th>Market</th><th /></tr></thead>
+                  <thead><tr><th>Select</th><th>Card</th><th>Set</th><th>Variant</th><th>Tags</th><th>Qty</th><th>Market</th><th /></tr></thead>
                   <tbody>
                     {filteredCards.map((card) => (
-                      <tr key={card.id}>
+                      <tr key={card.id} className={selectedCardIds.includes(card.id) ? "selected-row" : ""}>
+                        <td><input type="checkbox" checked={selectedCardIds.includes(card.id)} onChange={(e) => setSelectedCardIds((current) => e.target.checked ? [...current, card.id] : current.filter((id) => id !== card.id))} /></td>
                         <td><div className="table-card"><CardArt card={card} compact /><div><strong>{card.name}</strong><span>#{card.localId} · {card.rarity ?? "—"}</span></div></div></td>
                         <td>{card.setName ?? "—"}</td>
                         <td>{labelVariant(card.variant)} · {card.condition}</td>
-                        <td><div className="tags">{card.tags.slice(0, 3).map((tag) => <span key={tag}>#{tag}</span>)}</div></td>
+                        <td><div className="tags">{allCardTags(card).slice(0, 4).map((tag) => <span key={tag}>#{tag}</span>)}</div></td>
                         <td>{card.quantity}</td>
                         <td><strong>{money(card.marketPrice)}</strong></td>
                         <td><button className="icon-button" onClick={() => toggleFavorite(card.id)}><Star size={16} fill={card.favorite ? "currentColor" : "none"} /></button></td>
