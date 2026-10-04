@@ -3,8 +3,6 @@ import { CardSearchResult, CardVariant, TcgDexCard, TcgPlayerPricing } from "./t
 const TCGCSV_BASE = "https://tcgcsv.com/tcgplayer/3";
 const USER_AGENT = "PokedexVault/0.1 (github.com/BULLS192/Pokedex)";
 
-// TCGdex can lag newly released sets. These recent TCGplayer groups are queried
-// as a fallback so brand-new cards are searchable as soon as TCGCSV publishes them.
 const RECENT_GROUPS = [
   { groupId: 24722, name: "30th Celebration" },
   { groupId: 24837, name: "30th Celebration Classic Collection" },
@@ -46,12 +44,20 @@ function field(product: TcgCsvProduct, key: string) {
   )?.value;
 }
 
-function normalizeNumber(value?: string | null) {
-  if (!value) return "";
-  return value.trim().toLowerCase().replace(/^0+(?=\d)/, "");
+function normalizeName(value?: string | null) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
-function numerator(value?: string | null) {
+function normalizeNumber(value?: string | number | null) {
+  if (value == null) return "";
+  return String(value).trim().toLowerCase().replace(/^0+(?=\d)/, "");
+}
+
+function numerator(value?: string | number | null) {
   return normalizeNumber(value).split("/")[0] ?? "";
 }
 
@@ -94,7 +100,7 @@ export async function searchRecentTcgCsv(
   name?: string,
   number?: string
 ): Promise<CardSearchResult[]> {
-  const queryName = name?.trim().toLowerCase();
+  const queryName = normalizeName(name);
 
   const groups = await Promise.all(
     RECENT_GROUPS.map(async (group) => ({
@@ -110,7 +116,7 @@ export async function searchRecentTcgCsv(
       const cardNumber = field(product, "Number");
       if (!cardNumber) continue;
 
-      const productName = (product.cleanName || product.name || "").toLowerCase();
+      const productName = normalizeName(product.cleanName || product.name);
       if (queryName && !productName.includes(queryName)) continue;
       if (!matchesNumber(cardNumber, number)) continue;
 
@@ -139,6 +145,78 @@ function variantKey(subTypeName?: string): CardVariant | null {
   return null;
 }
 
+function buildTcgCsvCard(
+  group: (typeof RECENT_GROUPS)[number],
+  product: TcgCsvProduct,
+  prices: TcgCsvPrice[]
+): TcgDexCard {
+  const productPrices = prices.filter((item) => item.productId === product.productId);
+  const tcgplayer: TcgPlayerPricing = {
+    updated: new Date().toISOString(),
+    unit: "USD",
+  };
+
+  let hasNormal = false;
+  let hasHolo = false;
+  let hasReverse = false;
+
+  for (const row of productPrices) {
+    const key = variantKey(row.subTypeName);
+    if (!key) continue;
+
+    tcgplayer[key] = {
+      lowPrice: row.lowPrice,
+      midPrice: row.midPrice,
+      highPrice: row.highPrice,
+      marketPrice: row.marketPrice,
+      directLowPrice: row.directLowPrice,
+    };
+
+    if (key === "normal") hasNormal = true;
+    if (key === "holofoil") hasHolo = true;
+    if (key === "reverse-holofoil") hasReverse = true;
+  }
+
+  const rarity = field(product, "Rarity") ?? null;
+
+  // Some very new products can exist before a subtype price row is complete.
+  if (!hasNormal && !hasHolo && !hasReverse) {
+    if (/classic collection|double rare|ultra rare|illustration|secret|rare/i.test(rarity ?? "")) {
+      hasHolo = true;
+    } else {
+      hasNormal = true;
+    }
+  }
+
+  const hpValue = Number(field(product, "HP"));
+  const cardType = field(product, "Card Type");
+
+  return {
+    id: `tcgcsv-${group.groupId}-${product.productId}`,
+    localId: field(product, "Number") ?? String(product.productId),
+    name: product.name,
+    image: product.imageUrl ?? null,
+    rarity,
+    category: "Pokemon",
+    hp: Number.isFinite(hpValue) ? hpValue : null,
+    types: cardType && !/energy|trainer/i.test(cardType) ? [cardType] : [],
+    variants: {
+      normal: hasNormal,
+      holo: hasHolo,
+      reverse: hasReverse,
+      firstEdition: false,
+      wPromo: false,
+    },
+    set: {
+      id: `tcgplayer-${group.groupId}`,
+      name: group.name,
+    },
+    pricing: {
+      tcgplayer,
+    },
+  };
+}
+
 export async function getTcgCsvCard(id: string): Promise<TcgDexCard | null> {
   const match = /^tcgcsv-(\d+)-(\d+)$/.exec(id);
   if (!match) return null;
@@ -156,60 +234,50 @@ export async function getTcgCsvCard(id: string): Promise<TcgDexCard | null> {
   const product = products.find((item) => item.productId === productId);
   if (!product) return null;
 
-  const productPrices = prices.filter((item) => item.productId === productId);
-  const tcgplayer: TcgPlayerPricing = {
-    updated: new Date().toISOString(),
-    unit: "USD",
-  };
+  return buildTcgCsvCard(group, product, prices);
+}
 
-  let hasNormal = false;
-  let hasHolo = false;
-  let hasReverse = false;
+export async function enrichRecentCardWithTcgCsv(
+  card: TcgDexCard
+): Promise<TcgDexCard> {
+  const setName = card.set?.name;
+  if (!setName) return card;
 
-  for (const row of productPrices) {
-    const key = variantKey(row.subTypeName);
-    if (!key) continue;
-    tcgplayer[key] = {
-      lowPrice: row.lowPrice,
-      midPrice: row.midPrice,
-      highPrice: row.highPrice,
-      marketPrice: row.marketPrice,
-      directLowPrice: row.directLowPrice,
-    };
-    if (key === "normal") hasNormal = true;
-    if (key === "holofoil") hasHolo = true;
-    if (key === "reverse-holofoil") hasReverse = true;
+  const group = RECENT_GROUPS.find(
+    (item) => normalizeName(item.name) === normalizeName(setName)
+  );
+  if (!group) return card;
+
+  const [products, prices] = await Promise.all([
+    productsForGroup(group.groupId),
+    pricesForGroup(group.groupId),
+  ]);
+
+  const wantedName = normalizeName(card.name);
+  let candidates = products.filter(
+    (product) => normalizeName(product.cleanName || product.name) === wantedName
+  );
+
+  // The main 30th set preserves printed numbering between sources.
+  if (group.groupId === 24722) {
+    const wantedNumber = numerator(card.localId);
+    const numbered = candidates.filter(
+      (product) => numerator(field(product, "Number")) === wantedNumber
+    );
+    if (numbered.length) candidates = numbered;
   }
 
-  const rarity = field(product, "Rarity") ?? null;
-  if (!productPrices.length && /classic collection/i.test(rarity ?? "")) hasHolo = true;
-  if (!hasNormal && !hasHolo && !hasReverse) hasNormal = true;
+  // Classic Collection uses a different internal order in TCGdex, so name is
+  // the reliable cross-source key.
+  if (candidates.length !== 1) return card;
 
-  const hpValue = Number(field(product, "HP"));
-  const cardType = field(product, "Card Type");
+  const fallback = buildTcgCsvCard(group, candidates[0], prices);
 
   return {
-    id,
-    localId: field(product, "Number") ?? String(productId),
-    name: product.name,
-    image: product.imageUrl ?? null,
-    rarity,
-    category: "Pokemon",
-    hp: Number.isFinite(hpValue) ? hpValue : null,
-    types: cardType && !/energy|trainer/i.test(cardType) ? [cardType] : [],
-    variants: {
-      normal: hasNormal,
-      holo: hasHolo,
-      reverse: hasReverse,
-      firstEdition: false,
-      wPromo: false,
-    },
-    set: {
-      id: `tcgplayer-${groupId}`,
-      name: group.name,
-    },
-    pricing: {
-      tcgplayer,
-    },
+    ...card,
+    image: card.image ?? fallback.image,
+    rarity: card.rarity ?? fallback.rarity,
+    variants: fallback.variants ?? card.variants,
+    pricing: fallback.pricing ?? card.pricing,
   };
 }
