@@ -56,9 +56,12 @@ function normalizeName(value?: string | null) {
     .trim();
 }
 
+function comparableSearchName(value?: string | null) {
+  return normalizeName((value ?? "").replace(/\s*-\s*\d+\s*\/\s*\d+\s*$/i, ""));
+}
+
 function comparableProductName(product: TcgCsvProduct) {
-  const raw = product.cleanName || product.name || "";
-  return normalizeName(raw.replace(/\s*-\s*\d+\s*\/\s*\d+\s*$/i, ""));
+  return comparableSearchName(product.cleanName || product.name || "");
 }
 
 function normalizeNumber(value?: string | number | null) {
@@ -257,30 +260,20 @@ export async function enrichRecentCardWithTcgCsv(
   );
   if (!group) return card;
 
-  const [products, prices] = await Promise.all([
-    productsForGroup(group.groupId),
-    pricesForGroup(group.groupId),
-  ]);
-
-  const wantedName = normalizeName(card.name);
-  let candidates = products.filter(
-    (product) => comparableProductName(product) === wantedName
+  // Reuse the same search path the UI uses. For the main set, the printed
+  // numerator matches TCGdex. Classic Collection has a separate internal
+  // order, so the card name is the reliable bridge between catalogues.
+  const number = group.groupId === 24722 ? String(card.localId) : undefined;
+  const matches = (await searchRecentTcgCsv(card.name, number)).filter(
+    (result) =>
+      result.setName === group.name &&
+      comparableSearchName(result.name) === normalizeName(card.name)
   );
 
-  // The main 30th set preserves printed numbering between sources.
-  if (group.groupId === 24722) {
-    const wantedNumber = numerator(card.localId);
-    const numbered = candidates.filter(
-      (product) => numerator(field(product, "Number")) === wantedNumber
-    );
-    if (numbered.length) candidates = numbered;
-  }
+  if (matches.length !== 1) return card;
 
-  // Classic Collection uses a different internal order in TCGdex, so name is
-  // the reliable cross-source key.
-  if (candidates.length !== 1) return card;
-
-  const fallback = buildTcgCsvCard(group, candidates[0], prices);
+  const fallback = await getTcgCsvCard(matches[0].id);
+  if (!fallback) return card;
 
   return {
     ...card,
