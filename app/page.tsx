@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  AcquisitionType,
   Binder,
   CardCondition,
   CardSearchResult,
@@ -693,8 +694,30 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
   const [favorite, setFavorite] = useState(false);
+  const [acquisitionType, setAcquisitionType] = useState<AcquisitionType>("pack");
+  const [batchName, setBatchName] = useState("");
+  const [product, setProduct] = useState("");
+  const [totalCost, setTotalCost] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [purchaseLocation, setPurchaseLocation] = useState("");
+  const [seller, setSeller] = useState("");
 
   const pricing = selected ? extractMarketPrice(selected, variant) : null;
+  const autoTags = selected
+    ? buildSmartTags({
+        name: selected.name,
+        setName: selected.set?.name,
+        rarity: selected.rarity,
+        illustrator: selected.illustrator,
+        types: selected.types,
+        variant,
+        condition,
+        favorite,
+        marketPrice: pricing?.price,
+        acquisitionType,
+        product,
+      })
+    : [];
 
   async function runSearch(event: React.FormEvent) {
     event.preventDefault();
@@ -743,7 +766,21 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
       condition,
       quantity: Math.max(1, quantity),
       tags: [...new Set(tags.split(/[,\s]+/).map(normalizeTag).filter(Boolean))],
+      smartTags: autoTags,
       notes: notes.trim(),
+      acquisition: {
+        type: acquisitionType,
+        batchId: batchName.trim() || product.trim() || purchaseDate || purchaseLocation
+          ? id()
+          : undefined,
+        batchName: batchName.trim() || undefined,
+        product: product.trim() || undefined,
+        totalCost: totalCost.trim() ? Number(totalCost) : null,
+        currency: "USD",
+        date: purchaseDate || undefined,
+        location: purchaseLocation.trim() || undefined,
+        seller: seller.trim() || undefined,
+      },
       favorite,
       marketPrice: pricing?.price ?? null,
       priceSource: pricing?.source ?? null,
@@ -823,9 +860,43 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
                   </select>
                 </label>
                 <label><span>Quantity</span><input type="number" min="1" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} /></label>
-                <label><span>Tags / hashtags</span><input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="#pikachu #kanto #favorite" /></label>
+                <label><span>Custom tags (optional)</span><input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="#personal-favorite #trade" /></label>
               </div>
-              <label className="block-label"><span>Notes</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Pulled from booster bundle, gift, purchase location…" /></label>
+
+              <div className="smart-tag-preview">
+                <div>
+                  <strong>Smart tags</strong>
+                  <span>Generated automatically from the card, set, rarity, type, variant, condition and value.</span>
+                </div>
+                <div className="tags">{autoTags.slice(0, 10).map((tag) => <span key={tag}>#{tag}</span>)}</div>
+              </div>
+
+              <div className="acquisition-box">
+                <div className="section-title">
+                  <strong>Acquisition / opening data</strong>
+                  <span>Use the same batch details on every card pulled from the same product.</span>
+                </div>
+                <div className="form-grid two">
+                  <label><span>How acquired</span>
+                    <select value={acquisitionType} onChange={(e) => setAcquisitionType(e.target.value as AcquisitionType)}>
+                      <option value="pack">Pulled from pack / box</option>
+                      <option value="single">Bought as single</option>
+                      <option value="sealed">Sealed product</option>
+                      <option value="trade">Trade</option>
+                      <option value="gift">Gift</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                  <label><span>Batch / opening name</span><input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="30th Anniversary box #1" /></label>
+                  <label><span>Product</span><input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Booster pack, ETB, booster box…" /></label>
+                  <label><span>Total paid for product / batch (USD)</span><input type="number" min="0" step="0.01" value={totalCost} onChange={(e) => setTotalCost(e.target.value)} placeholder="0.00" /></label>
+                  <label><span>Date bought / opened</span><input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} /></label>
+                  <label><span>Location bought</span><input value={purchaseLocation} onChange={(e) => setPurchaseLocation(e.target.value)} placeholder="Store, city, event, website…" /></label>
+                  <label><span>Seller / store</span><input value={seller} onChange={(e) => setSeller(e.target.value)} placeholder="Optional" /></label>
+                </div>
+              </div>
+
+              <label className="block-label"><span>Notes</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything unique about this pull or copy…" /></label>
               <label className="check-label"><input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} /> Add to favorites</label>
               <div className="form-actions">
                 <button className="ghost" onClick={() => setSelected(null)}>Back to results</button>
@@ -836,6 +907,122 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
         </div>
       </div>
     </section>
+  );
+}
+
+function BulkEditPanel({
+  count,
+  onApply,
+}: {
+  count: number;
+  onApply: (update: (card: OwnedCard) => OwnedCard) => void;
+}) {
+  const [note, setNote] = useState("");
+  const [tags, setTags] = useState("");
+  const [acquisitionType, setAcquisitionType] = useState<AcquisitionType>("pack");
+  const [batchName, setBatchName] = useState("");
+  const [product, setProduct] = useState("");
+  const [totalCost, setTotalCost] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [purchaseLocation, setPurchaseLocation] = useState("");
+  const [seller, setSeller] = useState("");
+
+  function apply() {
+    const customTags = tags.split(/[,\s]+/).map(normalizeTag).filter(Boolean);
+    const hasAcquisition =
+      !!batchName.trim() ||
+      !!product.trim() ||
+      !!totalCost.trim() ||
+      !!purchaseDate ||
+      !!purchaseLocation.trim() ||
+      !!seller.trim();
+
+    const sharedBatchId = hasAcquisition ? id() : undefined;
+
+    onApply((card) => {
+      const acquisition = hasAcquisition
+        ? {
+            ...(card.acquisition ?? {}),
+            type: acquisitionType,
+            batchId: sharedBatchId,
+            batchName: batchName.trim() || card.acquisition?.batchName,
+            product: product.trim() || card.acquisition?.product,
+            totalCost: totalCost.trim() ? Number(totalCost) : card.acquisition?.totalCost ?? null,
+            currency: "USD",
+            date: purchaseDate || card.acquisition?.date,
+            location: purchaseLocation.trim() || card.acquisition?.location,
+            seller: seller.trim() || card.acquisition?.seller,
+          }
+        : card.acquisition;
+
+      const nextTags = [...new Set([...(card.tags ?? []), ...customTags])];
+      const nextNotes = note.trim()
+        ? [card.notes?.trim(), note.trim()].filter(Boolean).join("\n")
+        : card.notes;
+
+      return {
+        ...card,
+        tags: nextTags,
+        notes: nextNotes,
+        acquisition,
+        smartTags: buildSmartTags({
+          name: card.name,
+          setName: card.setName,
+          rarity: card.rarity,
+          illustrator: card.illustrator,
+          types: card.types,
+          variant: card.variant,
+          condition: card.condition,
+          favorite: card.favorite,
+          marketPrice: card.marketPrice,
+          acquisitionType: acquisition?.type,
+          product: acquisition?.product,
+        }),
+      };
+    });
+
+    setNote("");
+    setTags("");
+  }
+
+  return (
+    <article className="panel bulk-panel">
+      <div className="panel-heading">
+        <div>
+          <span className="eyebrow">Bulk edit</span>
+          <h2>{count} card{count === 1 ? "" : "s"} selected</h2>
+        </div>
+      </div>
+
+      <div className="form-grid two">
+        <label><span>Add note to all selected</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Pulled from the same booster opening…" /></label>
+        <label><span>Add custom tags</span><input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="#opening-night #keep" /></label>
+        <label><span>How acquired</span>
+          <select value={acquisitionType} onChange={(e) => setAcquisitionType(e.target.value as AcquisitionType)}>
+            <option value="pack">Pulled from pack / box</option>
+            <option value="single">Bought as single</option>
+            <option value="sealed">Sealed product</option>
+            <option value="trade">Trade</option>
+            <option value="gift">Gift</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label><span>Batch / opening name</span><input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="30th Anniversary box #1" /></label>
+        <label><span>Product</span><input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Booster box / ETB / pack" /></label>
+        <label><span>Total paid for this batch (USD)</span><input type="number" min="0" step="0.01" value={totalCost} onChange={(e) => setTotalCost(e.target.value)} placeholder="0.00" /></label>
+        <label><span>Date bought / opened</span><input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} /></label>
+        <label><span>Location bought</span><input value={purchaseLocation} onChange={(e) => setPurchaseLocation(e.target.value)} placeholder="Store, city, event, website…" /></label>
+        <label><span>Seller / store</span><input value={seller} onChange={(e) => setSeller(e.target.value)} placeholder="Optional" /></label>
+      </div>
+
+      <p className="bulk-help">
+        Batch cost is stored as shared opening metadata, not as the purchase price of every individual card. That lets us calculate pack/box ROI correctly later.
+      </p>
+
+      <div className="form-actions">
+        <button className="primary" onClick={apply}><Check size={17} /> Apply to selected</button>
+      </div>
+    </article>
   );
 }
 
