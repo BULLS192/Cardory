@@ -10,6 +10,14 @@ function tcgdexNumber(value?: string) {
   return first || undefined;
 }
 
+function normalizeName(value?: string) {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const name = searchParams.get("name")?.trim() || undefined;
@@ -35,10 +43,18 @@ export async function GET(request: NextRequest) {
 
   const dexResults = dexResponse.ok ? await dexResponse.json() : [];
 
-  // Prefer exact/new TCGCSV matches first, then append TCGdex results.
-  // De-dupe by provider id so cards from different printings remain distinct.
+  const recentNames = new Set(recentResults.map((card) => normalizeName(card.name)));
+
+  // TCGCSV is authoritative for the newest 30th Celebration products until
+  // TCGdex finishes publishing marketplace metadata. Suppress only those
+  // duplicate TCGdex rows; older printings such as Paldea Evolved remain.
+  const filteredDexResults = dexResults.filter((card: { id?: string; name?: string }) => {
+    const isRecentDex = card.id?.startsWith("30th-") || card.id?.startsWith("30th-c-");
+    return !(isRecentDex && recentNames.has(normalizeName(card.name)));
+  });
+
   const seen = new Set<string>();
-  const results = [...recentResults, ...dexResults].filter((card) => {
+  const results = [...recentResults, ...filteredDexResults].filter((card) => {
     if (!card?.id || seen.has(card.id)) return false;
     seen.add(card.id);
     return true;
