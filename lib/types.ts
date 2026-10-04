@@ -94,6 +94,7 @@ export type TcgDexCard = {
 };
 
 export type CardSearchResult = Pick<TcgDexCard, "id" | "localId" | "name" | "image"> & {
+  setId?: string;
   setName?: string;
   rarity?: string | null;
   source?: string;
