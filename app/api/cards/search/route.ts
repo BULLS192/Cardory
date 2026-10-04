@@ -12,6 +12,7 @@ function tcgdexNumber(value?: string) {
 
 function normalizeName(value?: string) {
   return (value ?? "")
+    .replace(/\s*-\s*\d+\s*\/\s*\d+\s*$/i, "")
     .toLowerCase()
     .replace(/[’']/g, "")
     .replace(/[^a-z0-9]+/g, " ")
