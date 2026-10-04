@@ -1,4 +1,4 @@
-import { CardVariant, TcgDexCard } from "./types";
+import { CardVariant, TcgDexCard, TcgPlayerPricing } from "./types";
 
 export const TCGDEX_BASE = "https://api.tcgdex.net/v2/en";
 
@@ -17,13 +17,45 @@ export function availableVariants(card: TcgDexCard): CardVariant[] {
   return out;
 }
 
-export function extractMarketPrice(card: TcgDexCard, variant: CardVariant) {
-  const tcg = card.pricing?.tcgplayer;
-  if (!tcg) return { price: null, source: null, updatedAt: null };
+function normalizeUpdatedAt(updated?: number | string) {
+  if (typeof updated === "string") {
+    const parsed = new Date(updated);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  if (typeof updated === "number") {
+    return new Date(updated > 10_000_000_000 ? updated : updated * 1000).toISOString();
+  }
+  return null;
+}
 
-  const variantPrice = tcg[variant] as
-    | { marketPrice?: number; midPrice?: number; lowPrice?: number }
-    | undefined;
+function selectFromPricing(tcg: TcgPlayerPricing, key: CardVariant) {
+  const selected = tcg[key];
+  if (!selected) return null;
+  const price = selected.marketPrice ?? selected.midPrice ?? selected.lowPrice ?? null;
+  if (typeof price !== "number") return null;
+  return { price, updatedAt: normalizeUpdatedAt(tcg.updated) };
+}
+
+export function extractMarketPrice(card: TcgDexCard, variant: CardVariant) {
+  const sources: TcgPlayerPricing[] = [
+    ...(card.pricing?.tcgplayer ? [card.pricing.tcgplayer] : []),
+    ...(card.variants_detailed ?? [])
+      .map((entry) => entry.pricing?.tcgplayer)
+      .filter((entry): entry is TcgPlayerPricing => Boolean(entry)),
+  ];
+
+  if (!sources.length) return { price: null, source: null, updatedAt: null };
+
+  for (const source of sources) {
+    const match = selectFromPricing(source, variant);
+    if (match) {
+      return {
+        price: match.price,
+        source: "TCGplayer via TCGdex",
+        updatedAt: match.updatedAt,
+      };
+    }
+  }
 
   const fallbackKeys: CardVariant[] = [
     "normal",
@@ -35,30 +67,20 @@ export function extractMarketPrice(card: TcgDexCard, variant: CardVariant) {
     "unlimited-holofoil",
   ];
 
-  let selected = variantPrice;
-  if (!selected) {
-    for (const key of fallbackKeys) {
-      const maybe = tcg[key] as
-        | { marketPrice?: number; midPrice?: number; lowPrice?: number }
-        | undefined;
-      if (maybe) {
-        selected = maybe;
-        break;
+  for (const key of fallbackKeys) {
+    for (const source of sources) {
+      const match = selectFromPricing(source, key);
+      if (match) {
+        return {
+          price: match.price,
+          source: "TCGplayer via TCGdex",
+          updatedAt: match.updatedAt,
+        };
       }
     }
   }
 
-  const price = selected?.marketPrice ?? selected?.midPrice ?? selected?.lowPrice ?? null;
-  const updatedAt =
-    typeof tcg.updated === "number"
-      ? new Date(tcg.updated > 10_000_000_000 ? tcg.updated : tcg.updated * 1000).toISOString()
-      : null;
-
-  return {
-    price: typeof price === "number" ? price : null,
-    source: price != null ? "TCGplayer via TCGdex" : null,
-    updatedAt,
-  };
+  return { price: null, source: null, updatedAt: null };
 }
 
 export function isPriceStale(date?: string | null, hours = 6) {
