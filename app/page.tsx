@@ -5,6 +5,7 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  Camera,
   Grid2X2,
   Heart,
   LayoutDashboard,
@@ -35,6 +36,7 @@ import {
   TcgDexCard,
 } from "@/lib/types";
 import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "@/lib/tcgdex";
+import CardScanner from "@/components/CardScanner";
 
 const STORAGE_KEY = "pokedex-vault-v1";
 
@@ -827,6 +829,7 @@ function AddCard({
   const [purchaseLocation, setPurchaseLocation] = useState("");
   const [seller, setSeller] = useState("");
   const [currency, setCurrency] = useState("SGD");
+  const [showScanner, setShowScanner] = useState(false);
 
   const pricing = selected ? extractMarketPrice(selected, variant) : null;
   const autoTags = selected
@@ -852,22 +855,48 @@ function AddCard({
       })
     : [];
 
-  async function runSearch(event: React.FormEvent) {
-    event.preventDefault();
-    if (!name.trim() && !number.trim()) return;
+  async function searchCatalogue(searchName: string, searchNumber: string) {
+    if (!searchName.trim() && !searchNumber.trim()) return [] as CardSearchResult[];
     setLoading(true);
     setSelected(null);
     try {
       const params = new URLSearchParams();
-      if (name.trim()) params.set("name", name.trim());
-      if (number.trim()) params.set("number", number.trim());
+      if (searchName.trim()) params.set("name", searchName.trim());
+      if (searchNumber.trim()) params.set("number", searchNumber.trim());
       params.set("game", game);
       params.set("language", language);
       const response = await fetch(`/api/cards/search?${params.toString()}`);
       const data = await response.json();
-      setResults(data.results ?? []);
+      const found = (data.results ?? []) as CardSearchResult[];
+      setResults(found);
+      return found;
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runSearch(event: React.FormEvent) {
+    event.preventDefault();
+    setShowScanner(false);
+    await searchCatalogue(name, number);
+  }
+
+  async function handleScannedNumber(detectedNumber: string) {
+    setName("");
+    setNumber(detectedNumber);
+    const found = await searchCatalogue("", detectedNumber);
+    setShowScanner(false);
+
+    const normalizeNumber = (value: string | number) =>
+      String(value).toUpperCase().replace(/\s+/g, "").replace(/^0+(?=\d)/, "");
+    const wanted = normalizeNumber(detectedNumber);
+    const exact = found.filter((result) => {
+      const current = normalizeNumber(result.localId);
+      return current === wanted || current.split("/")[0] === wanted.split("/")[0];
+    });
+
+    if (exact.length === 1) {
+      await selectCard(exact[0]);
     }
   }
 
@@ -948,6 +977,7 @@ function AddCard({
       setTags("");
       setNotes("");
       setFavorite(false);
+      setShowScanner(true);
       onAdd(owned, true);
     } else {
       onAdd(owned, false);
@@ -960,10 +990,12 @@ function AddCard({
     setSessionCardCount(0);
     setSessionMarketTotals({});
     setAcquisitionType("pack");
+    setShowScanner(true);
   }
 
   function finishOpeningSession() {
     setOpeningSession(false);
+    setShowScanner(false);
     setSessionId(id());
     onDone();
   }
@@ -986,18 +1018,57 @@ function AddCard({
       />
 
       {openingSession && (
-        <div className="opening-session-bar">
-          <div><strong>{sessionCardCount}</strong><span>cards logged</span></div>
-          <div>
-            <strong>
-              {Object.entries(sessionMarketTotals)
-                .map(([priceCurrency, value]) => money(value, priceCurrency))
-                .join(" · ") || "—"}
-            </strong>
-            <span>current market value</span>
+        <>
+          <div className="opening-session-bar">
+            <div><strong>{sessionCardCount}</strong><span>cards logged</span></div>
+            <div>
+              <strong>
+                {Object.entries(sessionMarketTotals)
+                  .map(([priceCurrency, value]) => money(value, priceCurrency))
+                  .join(" · ") || "—"}
+              </strong>
+              <span>current market value</span>
+            </div>
+            <div><strong>{batchName || "New opening"}</strong><span>{product || "Shared batch details will carry forward"}</span></div>
           </div>
-          <div><strong>{batchName || "New opening"}</strong><span>{product || "Shared batch details will carry forward"}</span></div>
-        </div>
+
+          <article className="panel opening-details">
+            <div className="section-title">
+              <strong>Opening details</strong>
+              <span>Enter these once. Every scanned pull in this session inherits them automatically.</span>
+            </div>
+            <div className="form-grid four">
+              <label><span>How acquired</span>
+                <select value={acquisitionType} onChange={(e) => setAcquisitionType(e.target.value as AcquisitionType)}>
+                  <option value="pack">Pulled from pack / box</option>
+                  <option value="single">Bought as single</option>
+                  <option value="sealed">Sealed product</option>
+                  <option value="trade">Trade</option>
+                  <option value="gift">Gift</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label><span>Opening name</span><input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="Japanese box #1" /></label>
+              <label><span>Product</span><input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Booster box / pack / ETB" /></label>
+              <label><span>Total paid</span><input type="number" min="0" step="0.01" value={totalCost} onChange={(e) => setTotalCost(e.target.value)} placeholder="0.00" /></label>
+              <label><span>Purchase currency</span>
+                <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                  <option value="SGD">SGD</option>
+                  <option value="USD">USD</option>
+                  <option value="JPY">JPY</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="AUD">AUD</option>
+                  <option value="CNY">CNY</option>
+                  <option value="MYR">MYR</option>
+                </select>
+              </label>
+              <label><span>Date bought / opened</span><input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} /></label>
+              <label><span>Location bought</span><input value={purchaseLocation} onChange={(e) => setPurchaseLocation(e.target.value)} placeholder="Store, city, event…" /></label>
+              <label><span>Seller / store</span><input value={seller} onChange={(e) => setSeller(e.target.value)} placeholder="Optional" /></label>
+            </div>
+          </article>
+        </>
       )}
 
       <div className="add-layout">
@@ -1020,8 +1091,29 @@ function AddCard({
               <label><span>Card name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder={game === "riftbound" ? "e.g. Jinx" : "e.g. Pikachu"} /></label>
               <label><span>Card number</span><input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 173" /></label>
             </div>
-            <button className="primary" type="submit" disabled={loading}><Search size={17} /> {loading ? "Searching…" : "Find card"}</button>
+            <div className="entry-actions">
+              <button
+                className="ghost"
+                type="button"
+                onClick={() => setShowScanner((value) => !value)}
+                disabled={loading}
+              >
+                <Camera size={17} /> {showScanner ? "Close scanner" : "Scan card"}
+              </button>
+              <button className="primary" type="submit" disabled={loading}><Search size={17} /> {loading ? "Searching…" : "Find card"}</button>
+            </div>
           </form>
+
+          {showScanner && (
+            <CardScanner
+              game={game}
+              language={language}
+              onDetected={async (detectedNumber) => {
+                await handleScannedNumber(detectedNumber);
+              }}
+              onClose={() => setShowScanner(false)}
+            />
+          )}
 
           {!!results.length && !selected && (
             <div className="search-results">
@@ -1096,10 +1188,11 @@ function AddCard({
                 <div className="tags">{autoTags.slice(0, 10).map((tag) => <span key={tag}>#{tag}</span>)}</div>
               </div>
 
+              {!openingSession ? (
               <div className="acquisition-box">
                 <div className="section-title">
-                  <strong>Acquisition / opening data</strong>
-                  <span>Use the same batch details on every card pulled from the same product.</span>
+                  <strong>Acquisition data</strong>
+                  <span>Record where this card came from and what you paid.</span>
                 </div>
                 <div className="form-grid two">
                   <label><span>How acquired</span>
@@ -1132,6 +1225,15 @@ function AddCard({
                   <label><span>Seller / store</span><input value={seller} onChange={(e) => setSeller(e.target.value)} placeholder="Optional" /></label>
                 </div>
               </div>
+              ) : (
+                <div className="session-inherited">
+                  <Sparkles size={16} />
+                  <div>
+                    <strong>Opening details inherited</strong>
+                    <span>{[batchName, product, purchaseDate, purchaseLocation].filter(Boolean).join(" · ") || "This pull will use the current opening session data."}</span>
+                  </div>
+                </div>
+              )}
 
               <label className="block-label"><span>Notes</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything unique about this pull or copy…" /></label>
               <label className="check-label"><input type="checkbox" checked={favorite} onChange={(e) => setFavorite(e.target.checked)} /> Add to favorites</label>
