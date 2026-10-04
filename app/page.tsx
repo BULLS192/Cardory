@@ -650,6 +650,7 @@ export default function Home() {
 
         {tab === "add" && (
           <AddCard
+            existingCards={state.cards}
             onAdd={(card, keepAdding) => {
               setState((current) => ({ ...current, cards: [card, ...current.cards] }));
               if (!keepAdding) setTab("cards");
@@ -794,9 +795,11 @@ function Empty({ title, body, action }: { title: string; body: string; action: (
 }
 
 function AddCard({
+  existingCards,
   onAdd,
   onDone,
 }: {
+  existingCards: OwnedCard[];
   onAdd: (card: OwnedCard, keepAdding: boolean) => void;
   onDone: () => void;
 }) {
@@ -830,6 +833,12 @@ function AddCard({
   const [seller, setSeller] = useState("");
   const [currency, setCurrency] = useState("SGD");
   const [showScanner, setShowScanner] = useState(false);
+  const [scanMode, setScanMode] = useState<"confirm" | "quick">("confirm");
+  const [autoLockSet, setAutoLockSet] = useState(true);
+  const [lockedSetId, setLockedSetId] = useState<string | null>(null);
+  const [lockedSetName, setLockedSetName] = useState<string | null>(null);
+  const [sessionRecentPulls, setSessionRecentPulls] = useState<OwnedCard[]>([]);
+  const [scanNotice, setScanNotice] = useState("");
 
   const pricing = selected ? extractMarketPrice(selected, variant) : null;
   const autoTags = selected
@@ -855,6 +864,59 @@ function AddCard({
       })
     : [];
 
+  const duplicateCopies = selected
+    ? existingCards
+        .filter(
+          (card) =>
+            card.tcgdexId === selected.id &&
+            (card.game ?? "pokemon") === game &&
+            (card.language ?? "English") === language
+        )
+        .reduce((sum, card) => sum + card.quantity, 0)
+    : 0;
+
+  function normalizeCollectorNumber(value: string | number) {
+    return String(value)
+      .toUpperCase()
+      .replace(/\s+/g, "")
+      .replace(/^0+(?=\d)/, "");
+  }
+
+  function sameLockedSet(result: CardSearchResult) {
+    if (!lockedSetId && !lockedSetName) return false;
+    if (lockedSetId && result.setId === lockedSetId) return true;
+    if (
+      lockedSetName &&
+      result.setName &&
+      result.setName.toLowerCase() === lockedSetName.toLowerCase()
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  function rankResults(results: CardSearchResult[], searchNumber: string) {
+    const wanted = normalizeCollectorNumber(searchNumber);
+    return [...results].sort((a, b) => {
+      const score = (result: CardSearchResult) => {
+        let value = 0;
+        const number = normalizeCollectorNumber(result.localId);
+        if (wanted && number === wanted) value += 100;
+        else if (
+          wanted &&
+          number.split("/")[0] === wanted.split("/")[0]
+        ) {
+          value += 60;
+        }
+        if (sameLockedSet(result)) value += 80;
+        if (result.image) value += 5;
+        if (result.source === "TCGCSV") value += 2;
+        return value;
+      };
+      return score(b) - score(a);
+    });
+  }
+
   async function searchCatalogue(searchName: string, searchNumber: string) {
     if (!searchName.trim() && !searchNumber.trim()) return [] as CardSearchResult[];
     setLoading(true);
@@ -867,7 +929,10 @@ function AddCard({
       params.set("language", language);
       const response = await fetch(`/api/cards/search?${params.toString()}`);
       const data = await response.json();
-      const found = (data.results ?? []) as CardSearchResult[];
+      const found = rankResults(
+        (data.results ?? []) as CardSearchResult[],
+        searchNumber
+      );
       setResults(found);
       return found;
     } finally {
@@ -884,89 +949,190 @@ function AddCard({
   async function handleScannedNumber(detectedNumber: string) {
     setName("");
     setNumber(detectedNumber);
+    setScanNotice("");
     const found = await searchCatalogue("", detectedNumber);
     setShowScanner(false);
 
-    const normalizeNumber = (value: string | number) =>
-      String(value).toUpperCase().replace(/\s+/g, "").replace(/^0+(?=\d)/, "");
-    const wanted = normalizeNumber(detectedNumber);
+    const wanted = normalizeCollectorNumber(detectedNumber);
     const exact = found.filter((result) => {
-      const current = normalizeNumber(result.localId);
-      return current === wanted || current.split("/")[0] === wanted.split("/")[0];
+      const current = normalizeCollectorNumber(result.localId);
+      return (
+        current === wanted ||
+        current.split("/")[0] === wanted.split("/")[0]
+      );
     });
 
-    if (exact.length === 1) {
-      await selectCard(exact[0]);
+    const lockedExact = exact.filter((result) => sameLockedSet(result));
+    const bestPool = lockedExact.length ? lockedExact : exact;
+
+    if (bestPool.length === 1) {
+      if (scanMode === "quick" && openingSession) {
+        setLoading(true);
+        try {
+          const card = await loadCard(bestPool[0]);
+          if (card) {
+            const variants = availableVariants(card);
+            if (variants.length === 1) {
+              const { owned, cardPricing } = makeOwnedCard(
+                card,
+                variants[0],
+                "NM",
+                1,
+                "",
+                "",
+                false
+              );
+              commitOwnedCard(owned, cardPricing, true);
+              setScanNotice(
+                `Quick-added ${owned.name} #${owned.localId}${owned.setName ? ` from ${owned.setName}` : ""}.`
+              );
+              return;
+            }
+          }
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      await selectCard(bestPool[0]);
+      return;
     }
+
+    if (lockedSetName && !lockedExact.length && exact.length) {
+      setScanNotice(
+        `No exact match was found in locked set ${lockedSetName}. Showing other matching sets.`
+      );
+    } else if (bestPool.length > 1) {
+      setScanNotice(
+        `${bestPool.length} likely matches found. The best candidates are ranked first.`
+      );
+    }
+  }
+
+  async function loadCard(result: CardSearchResult) {
+    const params = new URLSearchParams({ game, language });
+    const response = await fetch(
+      `/api/cards/${encodeURIComponent(result.id)}?${params.toString()}`
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as TcgDexCard;
   }
 
   async function selectCard(result: CardSearchResult) {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ game, language });
-      const response = await fetch(`/api/cards/${encodeURIComponent(result.id)}?${params.toString()}`);
-      const card = (await response.json()) as TcgDexCard;
+      const card = await loadCard(result);
+      if (!card) return;
       setSelected(card);
       const variants = availableVariants(card);
       setVariant(variants[0] ?? "normal");
+      setScanNotice("");
     } finally {
       setLoading(false);
     }
   }
 
-  function save() {
-    if (!selected) return;
-    const owned: OwnedCard = {
-      id: id(),
-      tcgdexId: selected.id,
+  function makeOwnedCard(
+    card: TcgDexCard,
+    chosenVariant: CardVariant,
+    chosenCondition = condition,
+    chosenQuantity = quantity,
+    chosenTags = tags,
+    chosenNotes = notes,
+    chosenFavorite = favorite
+  ) {
+    const cardPricing = extractMarketPrice(card, chosenVariant);
+    const smartTags = buildSmartTags({
       game,
       language,
-      name: selected.name,
-      localId: String(selected.localId),
-      image: selected.image,
-      setId: selected.set?.id,
-      setName: selected.set?.name,
-      rarity: selected.rarity,
-      illustrator: selected.illustrator,
-      types: selected.types,
-      variant,
-      condition,
-      quantity: Math.max(1, quantity),
-      tags: [...new Set(tags.split(/[,\s]+/).map(normalizeTag).filter(Boolean))],
-      smartTags: autoTags,
-      notes: notes.trim(),
-      acquisition: {
-        type: acquisitionType,
-        batchId: openingSession
-          ? sessionId
-          : batchName.trim() || product.trim() || purchaseDate || purchaseLocation
-            ? `batch-${[batchName, product, purchaseDate, purchaseLocation].map(normalizeTag).filter(Boolean).join("-")}`
-            : undefined,
-        batchName: batchName.trim() || undefined,
-        product: product.trim() || undefined,
-        totalCost: totalCost.trim() ? Number(totalCost) : null,
-        currency,
-        date: purchaseDate || undefined,
-        location: purchaseLocation.trim() || undefined,
-        seller: seller.trim() || undefined,
-      },
-      favorite,
-      marketPrice: pricing?.price ?? null,
-      marketCurrency: pricing?.currency ?? "USD",
-      priceSource: pricing?.source ?? null,
-      priceUpdatedAt: pricing?.updatedAt ?? new Date().toISOString(),
-      addedAt: new Date().toISOString(),
+      name: card.name,
+      setName: card.set?.name,
+      rarity: card.rarity,
+      illustrator: card.illustrator,
+      types: card.types,
+      variant: chosenVariant,
+      condition: chosenCondition,
+      favorite: chosenFavorite,
+      marketPrice: cardPricing.price,
+      marketCurrency: cardPricing.currency,
+      acquisitionType,
+      batchName,
+      product,
+      location: purchaseLocation,
+      seller,
+      purchaseCurrency: currency,
+    });
+
+    return {
+      cardPricing,
+      owned: {
+        id: id(),
+        tcgdexId: card.id,
+        game,
+        language,
+        name: card.name,
+        localId: String(card.localId),
+        image: card.image,
+        setId: card.set?.id,
+        setName: card.set?.name,
+        rarity: card.rarity,
+        illustrator: card.illustrator,
+        types: card.types,
+        variant: chosenVariant,
+        condition: chosenCondition,
+        quantity: Math.max(1, chosenQuantity),
+        tags: [...new Set(chosenTags.split(/[,\s]+/).map(normalizeTag).filter(Boolean))],
+        smartTags,
+        notes: chosenNotes.trim(),
+        acquisition: {
+          type: acquisitionType,
+          batchId: openingSession
+            ? sessionId
+            : batchName.trim() || product.trim() || purchaseDate || purchaseLocation
+              ? `batch-${[batchName, product, purchaseDate, purchaseLocation].map(normalizeTag).filter(Boolean).join("-")}`
+              : undefined,
+          batchName: batchName.trim() || undefined,
+          product: product.trim() || undefined,
+          totalCost: totalCost.trim() ? Number(totalCost) : null,
+          currency,
+          date: purchaseDate || undefined,
+          location: purchaseLocation.trim() || undefined,
+          seller: seller.trim() || undefined,
+        },
+        favorite: chosenFavorite,
+        marketPrice: cardPricing.price ?? null,
+        marketCurrency: cardPricing.currency ?? "USD",
+        priceSource: cardPricing.source ?? null,
+        priceUpdatedAt: cardPricing.updatedAt ?? new Date().toISOString(),
+        addedAt: new Date().toISOString(),
+      } satisfies OwnedCard,
     };
+  }
+
+  function commitOwnedCard(
+    owned: OwnedCard,
+    cardPricing: ReturnType<typeof extractMarketPrice>,
+    reopenScanner = true
+  ) {
     if (openingSession) {
-      setSessionCardCount((count) => count + Math.max(1, quantity));
-      if (pricing?.price != null) {
-        const priceCurrency = pricing.currency ?? "USD";
+      if (autoLockSet && !lockedSetId && owned.setId) {
+        setLockedSetId(owned.setId);
+        setLockedSetName(owned.setName ?? owned.setId);
+      }
+
+      setSessionRecentPulls((current) => [owned, ...current].slice(0, 6));
+      setSessionCardCount((count) => count + owned.quantity);
+
+      if (cardPricing.price != null) {
+        const priceCurrency = cardPricing.currency ?? "USD";
         setSessionMarketTotals((totals) => ({
           ...totals,
           [priceCurrency]:
-            (totals[priceCurrency] ?? 0) + pricing.price! * Math.max(1, quantity),
+            (totals[priceCurrency] ?? 0) +
+            cardPricing.price! * owned.quantity,
         }));
       }
+
       setName("");
       setNumber("");
       setResults([]);
@@ -977,11 +1143,17 @@ function AddCard({
       setTags("");
       setNotes("");
       setFavorite(false);
-      setShowScanner(true);
+      setShowScanner(reopenScanner);
       onAdd(owned, true);
     } else {
       onAdd(owned, false);
     }
+  }
+
+  function save() {
+    if (!selected) return;
+    const { owned, cardPricing } = makeOwnedCard(selected, variant);
+    commitOwnedCard(owned, cardPricing, true);
   }
 
   function startOpeningSession() {
@@ -989,6 +1161,10 @@ function AddCard({
     setSessionId(id());
     setSessionCardCount(0);
     setSessionMarketTotals({});
+    setSessionRecentPulls([]);
+    setLockedSetId(null);
+    setLockedSetName(null);
+    setScanNotice("");
     setAcquisitionType("pack");
     setShowScanner(true);
   }
@@ -996,6 +1172,9 @@ function AddCard({
   function finishOpeningSession() {
     setOpeningSession(false);
     setShowScanner(false);
+    setLockedSetId(null);
+    setLockedSetName(null);
+    setScanNotice("");
     setSessionId(id());
     onDone();
   }
@@ -1067,7 +1246,86 @@ function AddCard({
               <label><span>Location bought</span><input value={purchaseLocation} onChange={(e) => setPurchaseLocation(e.target.value)} placeholder="Store, city, event…" /></label>
               <label><span>Seller / store</span><input value={seller} onChange={(e) => setSeller(e.target.value)} placeholder="Optional" /></label>
             </div>
+
+            <div className="scanner-preferences">
+              <div className="scanner-pref">
+                <span>Scan mode</span>
+                <div className="segmented text-segmented">
+                  <button
+                    type="button"
+                    className={scanMode === "confirm" ? "active" : ""}
+                    onClick={() => setScanMode("confirm")}
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    className={scanMode === "quick" ? "active" : ""}
+                    onClick={() => setScanMode("quick")}
+                  >
+                    Quick
+                  </button>
+                </div>
+                <small>
+                  Quick only auto-adds when one safe match and one variant are found.
+                </small>
+              </div>
+
+              <label className="scanner-pref check-pref">
+                <input
+                  type="checkbox"
+                  checked={autoLockSet}
+                  onChange={(e) => setAutoLockSet(e.target.checked)}
+                />
+                <div>
+                  <span>Lock set after first pull</span>
+                  <small>Later scans from this opening rank the same set first.</small>
+                </div>
+              </label>
+
+              <div className="scanner-pref">
+                <span>Session set</span>
+                <strong>{lockedSetName || "Not locked yet"}</strong>
+                {lockedSetId && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => {
+                      setLockedSetId(null);
+                      setLockedSetName(null);
+                    }}
+                  >
+                    Unlock
+                  </button>
+                )}
+              </div>
+            </div>
           </article>
+
+          {!!sessionRecentPulls.length && (
+            <article className="panel recent-pulls-panel">
+              <div className="section-title">
+                <strong>Recent pulls</strong>
+                <span>Newest cards in this opening session.</span>
+              </div>
+              <div className="recent-pulls-strip">
+                {sessionRecentPulls.map((card) => (
+                  <div className="recent-pull" key={card.id}>
+                    {card.image ? (
+                      <img src={cardImage(card.image, "low") ?? ""} alt="" />
+                    ) : (
+                      <div className="result-placeholder" />
+                    )}
+                    <div>
+                      <strong>{card.name}</strong>
+                      <span>#{card.localId} · {card.setName ?? "Unknown set"}</span>
+                    </div>
+                    <b>{money(card.marketPrice, card.marketCurrency ?? "USD")}</b>
+                  </div>
+                ))}
+              </div>
+            </article>
+          )}
         </>
       )}
 
@@ -1076,13 +1334,13 @@ function AddCard({
           <form className="panel search-panel" onSubmit={runSearch}>
             <div className="form-grid two">
               <label><span>Card game</span>
-                <select value={game} onChange={(e) => { setGame(e.target.value as CardGame); setResults([]); setSelected(null); }}>
+                <select value={game} onChange={(e) => { setGame(e.target.value as CardGame); setResults([]); setSelected(null); setLockedSetId(null); setLockedSetName(null); }}>
                   <option value="pokemon">Pokémon</option>
                   <option value="riftbound">Riftbound</option>
                 </select>
               </label>
               <label><span>Card language</span>
-                <select value={language} onChange={(e) => { setLanguage(e.target.value as CardLanguage); setResults([]); setSelected(null); }}>
+                <select value={language} onChange={(e) => { setLanguage(e.target.value as CardLanguage); setResults([]); setSelected(null); setLockedSetId(null); setLockedSetName(null); }}>
                   <option value="English">English</option>
                   <option value="Japanese">Japanese</option>
                   <option value="Chinese">Chinese</option>
@@ -1115,12 +1373,25 @@ function AddCard({
             />
           )}
 
+          {scanNotice && <div className="scan-notice">{scanNotice}</div>}
+
           {!!results.length && !selected && (
             <div className="search-results">
-              {results.map((result) => (
-                <button className="search-result" key={result.id} onClick={() => void selectCard(result)}>
+              {results.map((result, index) => (
+                <button
+                  className={`search-result ${sameLockedSet(result) ? "set-match" : ""}`}
+                  key={result.id}
+                  onClick={() => void selectCard(result)}
+                >
                   {result.image ? <img src={cardImage(result.image, "low") ?? ""} alt="" /> : <div className="result-placeholder" />}
-                  <div><strong>{result.name}</strong><span>#{result.localId} · {result.setName ?? result.id} · {result.language ?? language}</span></div>
+                  <div>
+                    <strong>{result.name}</strong>
+                    <span>#{result.localId} · {result.setName ?? result.id} · {result.language ?? language}</span>
+                    <div className="result-badges">
+                      {index === 0 && <em>Best match</em>}
+                      {sameLockedSet(result) && <em>Session set</em>}
+                    </div>
+                  </div>
                   <ChevronRight size={18} />
                 </button>
               ))}
@@ -1164,6 +1435,13 @@ function AddCard({
                   </div>
                 </div>
               </div>
+
+              {duplicateCopies > 0 && (
+                <div className="duplicate-warning">
+                  <strong>Duplicate detected</strong>
+                  <span>You already have {duplicateCopies} cop{duplicateCopies === 1 ? "y" : "ies"} of this exact card in {language}. This pull will stay as its own record so its opening history is preserved.</span>
+                </div>
+              )}
 
               <div className="form-grid two">
                 <label><span>Variant</span>
