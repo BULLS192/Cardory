@@ -3,7 +3,12 @@ import { CardVariant, TcgDexCard, TcgPlayerPricing } from "./types";
 export const TCGDEX_BASE = "https://api.tcgdex.net/v2/en";
 
 export function cardImage(image?: string | null, quality: "low" | "high" = "high") {
-  return image ? `${image}/${quality}.webp` : null;
+  if (!image) return null;
+  if (image.includes("assets.tcgdex.net")) return `${image}/${quality}.webp`;
+  if (image.includes("tcgplayer-cdn.tcgplayer.com")) {
+    return quality === "high" ? image.replace(/_200w\.jpg$/, "_400w.jpg") : image;
+  }
+  return image;
 }
 
 export function availableVariants(card: TcgDexCard): CardVariant[] {
@@ -51,7 +56,7 @@ export function extractMarketPrice(card: TcgDexCard, variant: CardVariant) {
     if (match) {
       return {
         price: match.price,
-        source: "TCGplayer via TCGdex",
+        source: card.id.startsWith("tcgcsv-") ? "TCGplayer via TCGCSV" : "TCGplayer via TCGdex",
         updatedAt: match.updatedAt,
       };
     }
@@ -73,7 +78,7 @@ export function extractMarketPrice(card: TcgDexCard, variant: CardVariant) {
       if (match) {
         return {
           price: match.price,
-          source: "TCGplayer via TCGdex",
+          source: card.id.startsWith("tcgcsv-") ? "TCGplayer via TCGCSV" : "TCGplayer via TCGdex",
           updatedAt: match.updatedAt,
         };
       }
