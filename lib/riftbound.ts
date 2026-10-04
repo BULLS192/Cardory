@@ -226,6 +226,7 @@ export async function searchRiftbound(
         localId: cardNumber ?? String(product.productId),
         name: displayName(product),
         image: null,
+        setId: `riftbound-${group.groupId}`,
         setName: group.name,
         rarity: rarity ?? null,
         source: "TCGCSV",
