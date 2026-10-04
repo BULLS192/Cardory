@@ -637,7 +637,7 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
               {results.map((result) => (
                 <button className="search-result" key={result.id} onClick={() => void selectCard(result)}>
                   {result.image ? <img src={cardImage(result.image, "low") ?? ""} alt="" /> : <div className="result-placeholder" />}
-                  <div><strong>{result.name}</strong><span>#{result.localId} · {result.id}</span></div>
+                  <div><strong>{result.name}</strong><span>#{result.localId} · {result.setName ?? result.id}</span></div>
                   <ChevronRight size={18} />
                 </button>
               ))}
