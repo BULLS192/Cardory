@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { TCGDEX_BASE } from "@/lib/tcgdex";
-import { getTcgCsvCard } from "@/lib/tcgcsv";
+import { enrichRecentCardWithTcgCsv, getTcgCsvCard } from "@/lib/tcgcsv";
+import { TcgDexCard } from "@/lib/types";
 
 export const revalidate = 21600;
 
@@ -32,6 +33,7 @@ export async function GET(
     );
   }
 
-  const card = await response.json();
-  return NextResponse.json(card);
+  const card = (await response.json()) as TcgDexCard;
+  const enriched = await enrichRecentCardWithTcgCsv(card);
+  return NextResponse.json(enriched);
 }
