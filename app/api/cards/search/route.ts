@@ -63,11 +63,21 @@ export async function GET(request: NextRequest) {
   ]);
 
   const rawDexResults = dexResponse.ok ? await dexResponse.json() : [];
-  const dexResults = rawDexResults.map((card: Record<string, unknown>) => ({
-    ...card,
-    game: "pokemon",
-    language,
-  }));
+  const dexResults = rawDexResults.map((card: Record<string, unknown>) => {
+    const cardId = typeof card.id === "string" ? card.id : "";
+    const rawSet = card.set as { id?: string; name?: string } | undefined;
+    const derivedSetId =
+      rawSet?.id ||
+      (cardId.includes("-") ? cardId.split("-").slice(0, -1).join("-") : undefined);
+
+    return {
+      ...card,
+      setId: derivedSetId,
+      setName: rawSet?.name,
+      game: "pokemon",
+      language,
+    };
+  });
 
   const recentNames = new Set(recentResults.map((card) => normalizeName(card.name)));
 
