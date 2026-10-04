@@ -59,7 +59,11 @@ export type TcgDexCard = {
   };
 };
 
-export type CardSearchResult = Pick<TcgDexCard, "id" | "localId" | "name" | "image"> & {\n  setName?: string;\n  rarity?: string | null;\n  source?: string;\n};
+export type CardSearchResult = Pick<TcgDexCard, "id" | "localId" | "name" | "image"> & {
+  setName?: string;
+  rarity?: string | null;
+  source?: string;
+};
 
 export type OwnedCard = {
   id: string;
