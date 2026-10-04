@@ -80,7 +80,10 @@ function buildSmartTags(input: {
   favorite?: boolean;
   marketPrice?: number | null;
   acquisitionType?: string;
+  batchName?: string;
   product?: string;
+  location?: string;
+  seller?: string;
 }) {
   const tags = new Set<string>();
   const add = (prefix: string, value?: string | null) => {
@@ -98,7 +101,10 @@ function buildSmartTags(input: {
   if (input.condition) add("condition", input.condition);
   if (input.favorite) tags.add("favorite");
   if (input.acquisitionType) add("source", input.acquisitionType);
+  if (input.batchName) add("opening", input.batchName);
   if (input.product) add("product", input.product);
+  if (input.location) add("location", input.location);
+  if (input.seller) add("seller", input.seller);
 
   const value = input.marketPrice ?? 0;
   if (value >= 100) tags.add("value-100-plus");
@@ -188,7 +194,32 @@ export default function Home() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) setState(JSON.parse(saved));
+      if (saved) {
+        const parsed = JSON.parse(saved) as CollectionState;
+        setState({
+          ...parsed,
+          cards: (parsed.cards ?? []).map((card) => ({
+            ...card,
+            tags: card.tags ?? [],
+            smartTags: buildSmartTags({
+              name: card.name,
+              setName: card.setName,
+              rarity: card.rarity,
+              illustrator: card.illustrator,
+              types: card.types,
+              variant: card.variant,
+              condition: card.condition,
+              favorite: card.favorite,
+              marketPrice: card.marketPrice,
+              acquisitionType: card.acquisition?.type,
+              batchName: card.acquisition?.batchName,
+              product: card.acquisition?.product,
+              location: card.acquisition?.location,
+              seller: card.acquisition?.seller,
+            }),
+          })),
+        });
+      }
     } catch {
       // A malformed local cache should never block the collection UI.
     }
@@ -298,7 +329,10 @@ export default function Home() {
               favorite: owned.favorite,
               marketPrice,
               acquisitionType: owned.acquisition?.type,
+              batchName: owned.acquisition?.batchName,
               product: owned.acquisition?.product,
+              location: owned.acquisition?.location,
+              seller: owned.acquisition?.seller,
             }),
           };
         }),
@@ -327,7 +361,10 @@ export default function Home() {
                 favorite: !card.favorite,
                 marketPrice: card.marketPrice,
                 acquisitionType: card.acquisition?.type,
+                batchName: card.acquisition?.batchName,
                 product: card.acquisition?.product,
+                location: card.acquisition?.location,
+                seller: card.acquisition?.seller,
               }),
             }
           : card
@@ -701,6 +738,7 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
   const [purchaseDate, setPurchaseDate] = useState("");
   const [purchaseLocation, setPurchaseLocation] = useState("");
   const [seller, setSeller] = useState("");
+  const [currency, setCurrency] = useState("SGD");
 
   const pricing = selected ? extractMarketPrice(selected, variant) : null;
   const autoTags = selected
@@ -715,7 +753,10 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
         favorite,
         marketPrice: pricing?.price,
         acquisitionType,
+        batchName,
         product,
+        location: purchaseLocation,
+        seller,
       })
     : [];
 
@@ -776,7 +817,7 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
         batchName: batchName.trim() || undefined,
         product: product.trim() || undefined,
         totalCost: totalCost.trim() ? Number(totalCost) : null,
-        currency: "USD",
+        currency,
         date: purchaseDate || undefined,
         location: purchaseLocation.trim() || undefined,
         seller: seller.trim() || undefined,
@@ -889,7 +930,19 @@ function AddCard({ onAdd }: { onAdd: (card: OwnedCard) => void }) {
                   </label>
                   <label><span>Batch / opening name</span><input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="30th Anniversary box #1" /></label>
                   <label><span>Product</span><input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Booster pack, ETB, booster box…" /></label>
-                  <label><span>Total paid for product / batch (USD)</span><input type="number" min="0" step="0.01" value={totalCost} onChange={(e) => setTotalCost(e.target.value)} placeholder="0.00" /></label>
+                  <label><span>Total paid for product / batch</span><input type="number" min="0" step="0.01" value={totalCost} onChange={(e) => setTotalCost(e.target.value)} placeholder="0.00" /></label>
+                  <label><span>Purchase currency</span>
+                    <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                      <option value="SGD">SGD</option>
+                      <option value="USD">USD</option>
+                      <option value="JPY">JPY</option>
+                      <option value="EUR">EUR</option>
+                      <option value="GBP">GBP</option>
+                      <option value="AUD">AUD</option>
+                      <option value="CNY">CNY</option>
+                      <option value="MYR">MYR</option>
+                    </select>
+                  </label>
                   <label><span>Date bought / opened</span><input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} /></label>
                   <label><span>Location bought</span><input value={purchaseLocation} onChange={(e) => setPurchaseLocation(e.target.value)} placeholder="Store, city, event, website…" /></label>
                   <label><span>Seller / store</span><input value={seller} onChange={(e) => setSeller(e.target.value)} placeholder="Optional" /></label>
@@ -926,6 +979,7 @@ function BulkEditPanel({
   const [purchaseDate, setPurchaseDate] = useState("");
   const [purchaseLocation, setPurchaseLocation] = useState("");
   const [seller, setSeller] = useState("");
+  const [currency, setCurrency] = useState("SGD");
 
   function apply() {
     const customTags = tags.split(/[,\s]+/).map(normalizeTag).filter(Boolean);
@@ -948,7 +1002,7 @@ function BulkEditPanel({
             batchName: batchName.trim() || card.acquisition?.batchName,
             product: product.trim() || card.acquisition?.product,
             totalCost: totalCost.trim() ? Number(totalCost) : card.acquisition?.totalCost ?? null,
-            currency: "USD",
+            currency,
             date: purchaseDate || card.acquisition?.date,
             location: purchaseLocation.trim() || card.acquisition?.location,
             seller: seller.trim() || card.acquisition?.seller,
@@ -976,7 +1030,10 @@ function BulkEditPanel({
           favorite: card.favorite,
           marketPrice: card.marketPrice,
           acquisitionType: acquisition?.type,
+          batchName: acquisition?.batchName,
           product: acquisition?.product,
+          location: acquisition?.location,
+          seller: acquisition?.seller,
         }),
       };
     });
@@ -1009,7 +1066,19 @@ function BulkEditPanel({
         </label>
         <label><span>Batch / opening name</span><input value={batchName} onChange={(e) => setBatchName(e.target.value)} placeholder="30th Anniversary box #1" /></label>
         <label><span>Product</span><input value={product} onChange={(e) => setProduct(e.target.value)} placeholder="Booster box / ETB / pack" /></label>
-        <label><span>Total paid for this batch (USD)</span><input type="number" min="0" step="0.01" value={totalCost} onChange={(e) => setTotalCost(e.target.value)} placeholder="0.00" /></label>
+        <label><span>Total paid for this batch</span><input type="number" min="0" step="0.01" value={totalCost} onChange={(e) => setTotalCost(e.target.value)} placeholder="0.00" /></label>
+        <label><span>Purchase currency</span>
+          <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            <option value="SGD">SGD</option>
+            <option value="USD">USD</option>
+            <option value="JPY">JPY</option>
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
+            <option value="AUD">AUD</option>
+            <option value="CNY">CNY</option>
+            <option value="MYR">MYR</option>
+          </select>
+        </label>
         <label><span>Date bought / opened</span><input type="date" value={purchaseDate} onChange={(e) => setPurchaseDate(e.target.value)} /></label>
         <label><span>Location bought</span><input value={purchaseLocation} onChange={(e) => setPurchaseLocation(e.target.value)} placeholder="Store, city, event, website…" /></label>
         <label><span>Seller / store</span><input value={seller} onChange={(e) => setSeller(e.target.value)} placeholder="Optional" /></label>
