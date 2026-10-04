@@ -12,7 +12,8 @@
     "next": "15.5.27",
     "react": "19.1.9",
     "react-dom": "19.1.9",
-    "lucide-react": "0.468.0"
+    "lucide-react": "0.468.0",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
