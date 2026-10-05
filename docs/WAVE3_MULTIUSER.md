@@ -1,6 +1,6 @@
 # Wave 3 — Multi-user Cloud Collection
 
-Wave 3 turns Pokédex Vault from a single-browser collection into a multi-user portal.
+Wave 3 turns CARDORY from a single-browser collection into a multi-user portal.
 
 ## Privacy defaults
 
