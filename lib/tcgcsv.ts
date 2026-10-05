@@ -1,7 +1,7 @@
 import { CardSearchResult, CardVariant, TcgDexCard, TcgPlayerPricing } from "./types";
 
 const TCGCSV_BASE = "https://tcgcsv.com/tcgplayer/3";
-const USER_AGENT = "PokedexVault/0.1 (github.com/BULLS192/Pokedex)";
+const USER_AGENT = "Cardory/0.3";
 
 const RECENT_GROUPS = [
   { groupId: 24722, name: "30th Celebration", aliases: ["30th Celebration"] },
