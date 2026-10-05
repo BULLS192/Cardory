@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Pokédex Vault",
-  description: "A flexible digital Pokémon card binder with live market values.",
+  title: "CARDORY",
+  description: "A multi-TCG collector OS for scanning, cataloging, valuing, organizing and sharing your cards.",
 };
 
 export default function RootLayout({

@@ -459,10 +459,10 @@ export default function Home() {
     <main className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark"><Sparkles size={20} /></div>
+          <div className="brand-mark"><img src="/icon.png" alt="" /></div>
           <div>
-            <strong>Pokédex Vault</strong>
-            <span>Digital Binder</span>
+            <strong>CARDORY</strong>
+            <span>Every card has a story.</span>
           </div>
         </div>
 
