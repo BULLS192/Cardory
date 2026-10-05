@@ -8,7 +8,7 @@ import {
 
 const CATEGORY_ID = 89;
 const TCGCSV_BASE = `https://tcgcsv.com/tcgplayer/${CATEGORY_ID}`;
-const USER_AGENT = "PokedexVault/0.2 (github.com/BULLS192/Pokedex)";
+const USER_AGENT = "Cardory/0.3";
 
 const GROUPS = [
   { groupId: 24343, name: "Riftbound Promotional Cards" },
