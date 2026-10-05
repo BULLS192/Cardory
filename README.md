@@ -53,7 +53,7 @@ Open http://localhost:3000.
 
 ## Deployment
 
-Production is deployed on Vercel. The canonical project domain is intended to be:
+Production is deployed on Vercel. The canonical production domain is:
 
 **https://cardory.omnidite.com**
 
