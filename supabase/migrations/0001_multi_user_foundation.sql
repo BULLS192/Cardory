@@ -1,4 +1,4 @@
--- Pokédex Vault Wave 3: multi-user cloud foundation
+-- CARDORY Wave 3: multi-user cloud foundation
 -- Default posture: private. Public discovery is explicit opt-in.
 
 create extension if not exists pgcrypto;
