@@ -38,7 +38,8 @@ import {
 import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "@/lib/tcgdex";
 import CardScanner from "@/components/CardScanner";
 
-const STORAGE_KEY = "pokedex-vault-v1";
+const STORAGE_KEY = "cardory-v1";
+const LEGACY_STORAGE_KEYS = ["pokedex-vault-v1"];
 
 const emptyState: CollectionState = {
   cards: [],
@@ -212,7 +213,9 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved =
+        localStorage.getItem(STORAGE_KEY) ??
+        LEGACY_STORAGE_KEYS.map((key) => localStorage.getItem(key)).find(Boolean);
       if (saved) {
         const parsed = JSON.parse(saved) as CollectionState;
         setState({
