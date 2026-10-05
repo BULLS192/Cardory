@@ -1,5 +1,5 @@
 {
-  "name": "pokedex-digital-binder",
+  "name": "cardory",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -20,5 +20,6 @@
     "@types/react": "^19.0.6",
     "@types/react-dom": "^19.0.2",
     "typescript": "^5.7.2"
-  }
+  },
+  "description": "Multi-TCG collector OS for scanning, cataloging, valuing, organizing and sharing cards."
 }
