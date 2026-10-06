@@ -19,7 +19,8 @@ import {
   Tags,
   Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import {
   AcquisitionType,
   Binder,
@@ -37,6 +38,14 @@ import {
 } from "@/lib/types";
 import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "@/lib/tcgdex";
 import CardScanner from "@/components/CardScanner";
+import CloudAccount, { type CloudStatus } from "@/components/CloudAccount";
+import { getSupabaseBrowserClient } from "@/lib/supabase";
+import {
+  hasCollectionData,
+  loadCloudState,
+  prepareStateForCloud,
+  saveCloudState,
+} from "@/lib/cloud";
 
 const STORAGE_KEY = "cardory-v1";
 const LEGACY_STORAGE_KEYS = ["pokedex-vault-v1"];
@@ -210,6 +219,13 @@ export default function Home() {
   const [sort, setSort] = useState<"added" | "name" | "value" | "set">("added");
   const [syncing, setSyncing] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
+  const [session, setSession] = useState<Session | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [cloudCollectionId, setCloudCollectionId] = useState<string | null>(null);
+  const [cloudHydrated, setCloudHydrated] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<CloudStatus>("off");
+  const [cloudError, setCloudError] = useState("");
+  const cloudSaveQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     try {
@@ -265,13 +281,154 @@ export default function Home() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state, ready]);
 
+
   useEffect(() => {
-    if (!ready || !state.cards.length) return;
+    const client = getSupabaseBrowserClient();
+    if (!client) {
+      setAuthReady(true);
+      return;
+    }
+
+    let active = true;
+
+    void client.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) {
+        setCloudStatus("error");
+        setCloudError(error.message);
+      }
+      setSession(data.session);
+      setAuthReady(true);
+    });
+
+    const {
+      data: { subscription },
+    } = client.auth.onAuthStateChange((event, nextSession) => {
+      if (!active) return;
+      setSession(nextSession);
+      setAuthReady(true);
+
+      if (event === "SIGNED_OUT") {
+        setCloudCollectionId(null);
+        setCloudHydrated(false);
+        setCloudStatus("off");
+        setCloudError("");
+        setState(emptyState);
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ready || !authReady) return;
+
+    if (!session?.user) {
+      setCloudCollectionId(null);
+      setCloudHydrated(false);
+      if (!cloudError) setCloudStatus("off");
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+
+    let cancelled = false;
+    const userId = session.user.id;
+
+    async function hydrateCloud() {
+      setCloudStatus("loading");
+      setCloudError("");
+
+      try {
+        const remote = await loadCloudState(client!, userId);
+        if (cancelled) return;
+
+        let nextState = remote.state;
+        if (!hasCollectionData(remote.state) && hasCollectionData(state)) {
+          nextState = prepareStateForCloud(state);
+          await saveCloudState(client!, userId, remote.collectionId, nextState);
+          if (cancelled) return;
+        }
+
+        setState(nextState);
+        setCloudCollectionId(remote.collectionId);
+        setCloudHydrated(true);
+        setCloudStatus("synced");
+      } catch (error) {
+        if (cancelled) return;
+        setCloudHydrated(false);
+        setCloudStatus("error");
+        setCloudError(
+          error instanceof Error ? error.message : "Cloud library could not be loaded."
+        );
+      }
+    }
+
+    void hydrateCloud();
+
+    return () => {
+      cancelled = true;
+    };
+    // The local state is intentionally sampled once when this authenticated session hydrates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, authReady, session?.user.id]);
+
+  useEffect(() => {
+    if (
+      !ready ||
+      !session?.user ||
+      !cloudHydrated ||
+      !cloudCollectionId
+    ) {
+      return;
+    }
+
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+
+    const snapshot = state;
+    const userId = session.user.id;
+    const collectionId = cloudCollectionId;
+
+    const timeout = window.setTimeout(() => {
+      setCloudStatus("syncing");
+      setCloudError("");
+
+      cloudSaveQueue.current = cloudSaveQueue.current
+        .catch(() => undefined)
+        .then(() => saveCloudState(client, userId, collectionId, snapshot))
+        .then(() => {
+          setCloudStatus("synced");
+          setCloudError("");
+        })
+        .catch((error) => {
+          setCloudStatus("error");
+          setCloudError(
+            error instanceof Error ? error.message : "Cloud sync failed."
+          );
+        });
+    }, 900);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    state,
+    ready,
+    session?.user.id,
+    cloudHydrated,
+    cloudCollectionId,
+  ]);
+
+  useEffect(() => {
+    if (!ready || !state.cards.length || (session && !cloudHydrated)) return;
     const hasMissingPrices = state.cards.some((card) => card.marketPrice == null);
     if (!hasMissingPrices && !isPriceStale(state.lastGlobalPriceSync, 6)) return;
     void syncPrices(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready]);
+  }, [ready, session, cloudHydrated]);
 
   const totalCards = state.cards.reduce((sum, card) => sum + card.quantity, 0);
   const collectionValue = Object.entries(
@@ -477,6 +634,7 @@ export default function Home() {
         </nav>
 
         <div className="sidebar-footer">
+          <CloudAccount session={session} status={cloudStatus} error={cloudError} />
           <div className="sync-status">
             <span className={isPriceStale(state.lastGlobalPriceSync, 6) ? "dot stale" : "dot"} />
             <div>
