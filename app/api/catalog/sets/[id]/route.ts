@@ -20,19 +20,23 @@ export async function GET(
   }
 
   const indexed = await getIndexedSetDetail(language, id);
-  if (indexed) {
+  // An indexed set without artwork links should still render artwork from the
+  // provider while online; use our complete metadata as an outage fallback.
+  if (indexed?.cards.every((card) => Boolean(card.image))) {
     return NextResponse.json({ source: "Cardory index (TCGdex)", language, set: indexed });
   }
 
   try {
     const response = await getCatalogResource(language, `sets/${id}`);
     if (response.status === 404) {
+      if (indexed) return NextResponse.json({ source: "Cardory offline index", language, set: indexed });
       return NextResponse.json(
         { error: "This set is not available in the chosen language." },
         { status: 404 }
       );
     }
     if (!response.ok) {
+      if (indexed) return NextResponse.json({ source: "Cardory offline index", language, set: indexed });
       return NextResponse.json(
         { error: "TCGdex catalogue is temporarily unavailable." },
         { status: 502 }
@@ -43,6 +47,7 @@ export async function GET(
     if (!set) throw new Error("Unexpected set payload");
     return NextResponse.json({ source: "TCGdex", language, set });
   } catch {
+    if (indexed) return NextResponse.json({ source: "Cardory offline index", language, set: indexed });
     return NextResponse.json(
       { error: "Could not load the cards in this set." },
       { status: 502 }
