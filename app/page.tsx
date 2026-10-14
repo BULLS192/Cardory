@@ -18,6 +18,7 @@ import {
   Star,
   Tags,
   Trash2,
+  UserRound,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -214,6 +215,7 @@ export default function Home() {
   const [state, setState] = useState<CollectionState>(emptyState);
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [showMobileAccount, setShowMobileAccount] = useState(false);
   const [returnToSets, setReturnToSets] = useState(false);
   const [view, setView] = useState<"gallery" | "list">("gallery");
   const [search, setSearch] = useState("");
@@ -622,10 +624,20 @@ export default function Home() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark"><img src="/icon.png" alt="" /></div>
-          <div>
+          <div className="brand-copy">
             <strong>CARDORY</strong>
             <span>Every card has a story.</span>
           </div>
+          <button
+            className="mobile-account-trigger"
+            type="button"
+            onClick={() => setShowMobileAccount((shown) => !shown)}
+            aria-expanded={showMobileAccount}
+            aria-controls="mobile-cloud-account"
+          >
+            <UserRound size={16} aria-hidden="true" />
+            <span>{session?.user ? "Account" : "Sign in"}</span>
+          </button>
         </div>
 
         <nav>
@@ -635,6 +647,10 @@ export default function Home() {
           <NavButton active={tab === "binders"} onClick={() => setTab("binders")} icon={<BookOpen size={18} />} label="Binders" count={state.binders.length} />
           <NavButton active={tab === "add"} onClick={() => { setReturnToSets(false); setTab("add"); }} icon={<Plus size={18} />} label="Add Card" emphasize />
         </nav>
+
+        <div id="mobile-cloud-account" className="mobile-account-panel" hidden={!showMobileAccount}>
+          <CloudAccount session={session} status={cloudStatus} error={cloudError} />
+        </div>
 
         <div className="sidebar-footer">
           <CloudAccount session={session} status={cloudStatus} error={cloudError} />
