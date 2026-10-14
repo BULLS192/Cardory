@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "catalogue:import": "node scripts/import-pokemon-catalogue.mjs"
+    "catalogue:import": "node scripts/import-pokemon-catalogue.mjs",
+    "catalogue:db-import": "node scripts/import-pokemon-catalogue-db.mjs",
+    "test:collection": "node --test tests/set-completion.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
