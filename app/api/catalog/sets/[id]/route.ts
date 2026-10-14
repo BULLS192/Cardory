@@ -5,6 +5,7 @@ import {
   normaliseSetDetail,
   validCatalogueId,
 } from "@/lib/catalogue";
+import { getIndexedSetDetail } from "@/lib/catalogue-store";
 
 export async function GET(
   request: NextRequest,
@@ -16,6 +17,11 @@ export async function GET(
   const { id } = await context.params;
   if (!language || !validCatalogueId(id)) {
     return NextResponse.json({ error: "Invalid set or language." }, { status: 400 });
+  }
+
+  const indexed = await getIndexedSetDetail(language, id);
+  if (indexed) {
+    return NextResponse.json({ source: "Cardory index (TCGdex)", language, set: indexed });
   }
 
   try {
