@@ -6,3 +6,6 @@ out
 .env.local
 .vercel
 *.log
+
+# Local generated TCGdex card metadata snapshot
+/data/pokemon/
