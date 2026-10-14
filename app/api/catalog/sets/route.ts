@@ -30,10 +30,7 @@ export async function GET(request: NextRequest) {
   const merged = new Map(indexed.map((set) => [set.id, set]));
   // Prefer the live source for set headers; imported cards remain cached locally.
   for (const set of upstream) if (set) merged.set(set.id, set);
-  if (!merged.size && upstreamResult.status !== "fulfilled") {
-    return NextResponse.json({ error: "Catalogue is currently unavailable." }, { status: 502 });
-  }
-  if (!merged.size && (!upstreamResult.value?.ok)) {
+  if (!merged.size && (upstreamResult.status !== "fulfilled" || !upstreamResult.value.ok)) {
     return NextResponse.json({ error: "Catalogue is currently unavailable." }, { status: 502 });
   }
 
