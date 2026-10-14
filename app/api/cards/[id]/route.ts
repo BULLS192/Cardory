@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { tcgdexBase } from "@/lib/tcgdex";
+import { tcgdexBase, tcgdexLanguageCode } from "@/lib/tcgdex";
+import { getIndexedFullCard } from "@/lib/catalogue-store";
 import { enrichRecentCardWithTcgCsv, getTcgCsvCard } from "@/lib/tcgcsv";
 import { getRiftboundCard } from "@/lib/riftbound";
 import { CardLanguage, TcgDexCard } from "@/lib/types";
@@ -44,6 +45,20 @@ export async function GET(
       game: "pokemon",
       language: "English",
       marketCurrency: "USD",
+    });
+  }
+
+  const indexed = await getIndexedFullCard(tcgdexLanguageCode(language), id);
+  if (indexed) {
+    const cached = indexed as TcgDexCard;
+    return NextResponse.json({
+      ...cached,
+      game: "pokemon",
+      language,
+      marketCurrency:
+        cached.pricing?.tcgplayer?.unit ??
+        cached.pricing?.cardmarket?.unit ??
+        null,
     });
   }
 
