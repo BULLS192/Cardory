@@ -16,4 +16,7 @@ jobs:
           cache: npm
           cache-dependency-path: package.json
       - run: npm install
+      - run: npm run test:collection
+      - run: node --check scripts/import-pokemon-catalogue-db.mjs
+      - run: node --check scripts/import-pokemon-catalogue.mjs
       - run: npm run build

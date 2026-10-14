@@ -38,6 +38,7 @@ import {
 } from "@/lib/types";
 import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "@/lib/tcgdex";
 import CardScanner from "@/components/CardScanner";
+import SetCompletionView from "@/components/SetCompletion";
 import CloudAccount, { type CloudStatus } from "@/components/CloudAccount";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import {
@@ -56,7 +57,7 @@ const emptyState: CollectionState = {
   lastGlobalPriceSync: null,
 };
 
-type Tab = "dashboard" | "cards" | "binders" | "add";
+type Tab = "dashboard" | "cards" | "sets" | "binders" | "add";
 
 function id() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -213,6 +214,7 @@ export default function Home() {
   const [state, setState] = useState<CollectionState>(emptyState);
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [returnToSets, setReturnToSets] = useState(false);
   const [view, setView] = useState<"gallery" | "list">("gallery");
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("");
@@ -629,8 +631,9 @@ export default function Home() {
         <nav>
           <NavButton active={tab === "dashboard"} onClick={() => setTab("dashboard")} icon={<LayoutDashboard size={18} />} label="Dashboard" />
           <NavButton active={tab === "cards"} onClick={() => setTab("cards")} icon={<Grid2X2 size={18} />} label="My Cards" count={state.cards.length} />
+          <NavButton active={tab === "sets"} onClick={() => setTab("sets")} icon={<BookOpen size={18} />} label="Set Completion" />
           <NavButton active={tab === "binders"} onClick={() => setTab("binders")} icon={<BookOpen size={18} />} label="Binders" count={state.binders.length} />
-          <NavButton active={tab === "add"} onClick={() => setTab("add")} icon={<Plus size={18} />} label="Add Card" emphasize />
+          <NavButton active={tab === "add"} onClick={() => { setReturnToSets(false); setTab("add"); }} icon={<Plus size={18} />} label="Add Card" emphasize />
         </nav>
 
         <div className="sidebar-footer">
@@ -662,6 +665,13 @@ export default function Home() {
             collectionValue={collectionValue}
             onAdd={() => setTab("add")}
             onCards={() => setTab("cards")}
+          />
+        )}
+
+        {tab === "sets" && (
+          <SetCompletionView
+            ownedCards={state.cards}
+            onScan={() => { setReturnToSets(true); setTab("add"); }}
           />
         )}
 
@@ -814,9 +824,9 @@ export default function Home() {
             existingCards={state.cards}
             onAdd={(card, keepAdding) => {
               setState((current) => ({ ...current, cards: [card, ...current.cards] }));
-              if (!keepAdding) setTab("cards");
+              if (!keepAdding) setTab(returnToSets ? "sets" : "cards");
             }}
-            onDone={() => setTab("cards")}
+            onDone={() => setTab(returnToSets ? "sets" : "cards")}
           />
         )}
       </section>
