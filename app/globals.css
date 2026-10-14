@@ -70,6 +70,10 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 }
 
 .brand strong { font-size: 15px; letter-spacing: .01em; }
+
+/* Cloud access is kept in the sidebar on desktop and exposed through a compact toggle on mobile. */
+.mobile-account-trigger,
+.mobile-account-panel { display: none; }
 .brand span { color: #8f98a8; font-size: 12px; margin-top: 2px; }
 
 .sidebar nav {
@@ -1104,6 +1108,32 @@ tbody tr:last-child td { border-bottom: 0; }
     gap: 12px;
   }
   .brand { padding-bottom: 2px; }
+  .brand-copy { flex: 1; min-width: 0; }
+  .mobile-account-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 11px;
+    border: 1px solid #343b46;
+    border-radius: 10px;
+    background: #202631;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .mobile-account-trigger span { display: inline; margin: 0; color: inherit; font-size: inherit; }
+  .mobile-account-trigger[aria-expanded="true"] { border-color: #ef3d3d; }
+  .mobile-account-panel:not([hidden]) { display: block; }
+  .mobile-account-panel .cloud-account { background: #1b2028; }
+  .mobile-account-panel .cloud-input { font-size: 16px; padding: 11px; }
+  .mobile-account-panel .cloud-muted,
+  .mobile-account-panel .cloud-status,
+  .mobile-account-panel .cloud-error,
+  .mobile-account-panel .cloud-email { font-size: 12px; }
+  .mobile-account-panel .cloud-link,
+  .mobile-account-panel .cloud-account-title { font-size: 12px; }
+  .mobile-account-panel .cloud-submit { font-size: 13px; min-height: 40px; }
   .sidebar nav {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
