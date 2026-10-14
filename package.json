@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "catalogue:import": "node scripts/import-pokemon-catalogue.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
