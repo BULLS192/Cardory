@@ -11,7 +11,8 @@
     "catalogue:db-import": "node scripts/import-pokemon-catalogue-db.mjs",
     "test:collection": "node --test tests/set-completion.test.mjs",
     "test:catalogue": "node --test tests/catalogue-tcgcsv.test.mjs tests/owned-sets-binders.test.mjs",
-    "test:japanese": "node --test tests/japanese-card-lookup.test.mjs"
+    "test:japanese": "node --test tests/japanese-card-lookup.test.mjs",
+    "test:chinese": "node --test tests/chinese-card-lookup.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
