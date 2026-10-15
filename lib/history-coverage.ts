@@ -18,6 +18,7 @@ export type CardHistoryCoverage = {
   firstDate: string | null;
   lastDate: string | null;
   firstPrice: number | null;
+  firstCurrency: string | null;
   lastPrice: number | null;
   lastCurrency: string | null;
   source: string | null;
@@ -74,6 +75,7 @@ export function buildCardHistoryCoverage(
       observedDays: dates.length,
       firstDate: dates[0] ?? null, lastDate: dates.at(-1) ?? null,
       firstPrice: earliest ? Number(earliest.market_price) : null,
+      firstCurrency: earliest?.currency || null,
       lastPrice: latest ? Number(latest.market_price) : null,
       lastCurrency: latest?.currency || null,
       source: earliest?.source || null,
