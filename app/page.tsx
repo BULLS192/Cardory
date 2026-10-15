@@ -40,6 +40,7 @@ import {
 import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "@/lib/tcgdex";
 import CardScanner from "@/components/CardScanner";
 import SetCompletionView from "@/components/SetCompletion";
+import { makeUnlistedChineseIdentity, parseChineseNumber } from "@/lib/chinese-card-search";
 import { newBinder, replaceBinderCards, validateBinder } from "@/lib/binder-helpers";
 import CloudAccount, { type CloudStatus } from "@/components/CloudAccount";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
@@ -1004,6 +1005,9 @@ function AddCard({
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
   const [japaneseSetCode, setJapaneseSetCode] = useState("");
+  const [chineseSetCode, setChineseSetCode] = useState("");
+  const [chineseSetName, setChineseSetName] = useState("");
+  const [manualChineseVisible, setManualChineseVisible] = useState(false);
   const [results, setResults] = useState<CardSearchResult[]>([]);
   const [selected, setSelected] = useState<TcgDexCard | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1033,6 +1037,8 @@ function AddCard({
   const [sessionRecentPulls, setSessionRecentPulls] = useState<OwnedCard[]>([]);
   const [scanNotice, setScanNotice] = useState("");
 
+  const isChinese = game === "pokemon" &&
+    (language === "Chinese" || language === "Chinese Simplified");
   const pricing = selected ? extractMarketPrice(selected, variant) : null;
   const autoTags = selected
     ? buildSmartTags({
@@ -1070,6 +1076,7 @@ function AddCard({
 
   function normalizeCollectorNumber(value: string | number) {
     return String(value)
+      .normalize("NFKC")
       .toUpperCase()
       .replace(/\s+/g, "")
       .replace(/^0+(?=\d)/, "");
@@ -1110,9 +1117,10 @@ function AddCard({
     });
   }
 
-  async function searchCatalogue(searchName: string, searchNumber: string) {
+  async function searchCatalogue(searchName: string, searchNumber: string, setOverride?: string) {
     if (!searchName.trim() && !searchNumber.trim() &&
-        !(game === "pokemon" && language === "Japanese" && japaneseSetCode.trim()))
+        !(game === "pokemon" && language === "Japanese" && japaneseSetCode.trim()) &&
+        !(isChinese && (setOverride || chineseSetCode).trim()))
       return [] as CardSearchResult[];
     setLoading(true);
     setSelected(null);
@@ -1123,6 +1131,9 @@ function AddCard({
       if (searchNumber.trim()) params.set("number", searchNumber.trim());
       if (game === "pokemon" && language === "Japanese" && japaneseSetCode.trim()) {
         params.set("set", japaneseSetCode.trim());
+      }
+      if (isChinese && (setOverride || chineseSetCode).trim()) {
+        params.set("set", (setOverride || chineseSetCode).trim());
       }
       params.set("game", game);
       params.set("language", language);
@@ -1135,7 +1146,7 @@ function AddCard({
       );
       setResults(found);
       setScanNotice(data.notice || (!found.length
-        ? "No matching cards found. For Japanese cards, include the printed set code."
+        ? "No matching cards found. Include the printed set code."
         : ""));
       return found;
     } catch (error) {
@@ -1154,13 +1165,17 @@ function AddCard({
   }
 
   async function handleScannedNumber(detectedNumber: string) {
+    const chinese = isChinese ? parseChineseNumber(detectedNumber, chineseSetCode) : null;
+    const lookup = chinese?.collectorNumber || detectedNumber;
+    const printedCode = chinese?.setCode || chineseSetCode;
     setName("");
-    setNumber(detectedNumber);
+    setNumber(lookup);
+    if (chinese?.setCode) setChineseSetCode(chinese.setCode);
     setScanNotice("");
-    const found = await searchCatalogue("", detectedNumber);
+    const found = await searchCatalogue("", lookup, isChinese ? printedCode : undefined);
     setShowScanner(false);
 
-    const wanted = normalizeCollectorNumber(detectedNumber);
+    const wanted = normalizeCollectorNumber(lookup);
     const exact = found.filter((result) => {
       const current = normalizeCollectorNumber(result.localId);
       return (
@@ -1289,7 +1304,8 @@ function AddCard({
         condition: chosenCondition,
         quantity: Math.max(1, chosenQuantity),
         tags: [...new Set(chosenTags.split(/[,\s]+/).map(normalizeTag).filter(Boolean))],
-        smartTags,
+        smartTags: card.id.startsWith("cardory-custom-")
+          ? [...new Set([...smartTags, "unverified-catalogue"])] : smartTags,
         notes: chosenNotes.trim(),
         acquisition: {
           type: acquisitionType,
@@ -1361,6 +1377,22 @@ function AddCard({
     if (!selected) return;
     const { owned, cardPricing } = makeOwnedCard(selected, variant);
     commitOwnedCard(owned, cardPricing, true);
+  }
+
+  function createUnlistedChinese() {
+    if (!isChinese) return;
+    try {
+      const custom = makeUnlistedChineseIdentity(
+        language as "Chinese" | "Chinese Simplified",
+        number, chineseSetCode, name, chineseSetName
+      );
+      setSelected(custom);
+      setVariant("normal");
+      setManualChineseVisible(false);
+      setScanNotice("Manual Chinese printing: not verified against a catalogue. No artwork or market value will be invented.");
+    } catch (error) {
+      setScanNotice(error instanceof Error ? error.message : "Enter the correct Chinese printing details.");
+    }
   }
 
   function startOpeningSession() {
@@ -1550,18 +1582,27 @@ function AddCard({
                 <select value={language} onChange={(e) => { setLanguage(e.target.value as CardLanguage); setResults([]); setSelected(null); setLockedSetId(null); setLockedSetName(null); }}>
                   <option value="English">English</option>
                   <option value="Japanese">Japanese</option>
-                  <option value="Chinese">Chinese</option>
+                  <option value="Chinese">Traditional Chinese</option>
+                  <option value="Chinese Simplified">Simplified Chinese</option>
                 </select>
               </label>
               <label><span>Card name</span><input value={name} onChange={(e) => setName(e.target.value)}
                 placeholder={game === "riftbound" ? "e.g. Jinx" :
-                  language === "Japanese" ? "Optional: ピカチュウ" : "e.g. Pikachu"} /></label>
+                  language === "Japanese" ? "Optional: ピカチュウ" :
+                  isChinese ? "Optional: 皮卡丘" : "e.g. Pikachu"} /></label>
               <label><span>Card number</span><input value={number} onChange={(e) => setNumber(e.target.value)}
-                placeholder={game === "pokemon" && language === "Japanese" ? "123/190 or SV4a 123/190" : "e.g. 173"} /></label>
+                placeholder={game === "pokemon" && language === "Japanese" ? "123/190 or SV4a 123/190" :
+                  isChinese ? "e.g. 023/190 or CSV9C 023/190" : "e.g. 173"} /></label>
               {game === "pokemon" && language === "Japanese" && (
                 <label><span>Japanese set code (recommended)</span>
                   <input value={japaneseSetCode} onChange={(e) => setJapaneseSetCode(e.target.value)}
                     placeholder="e.g. SV4a, SV10, M1S, SV-P" autoCapitalize="characters" />
+                </label>
+              )}
+              {isChinese && (
+                <label><span>Chinese printed set code</span>
+                  <input value={chineseSetCode} onChange={(e) => setChineseSetCode(e.target.value)}
+                    placeholder="e.g. CSV9C, CBB4C, 151C" autoCapitalize="characters" />
                 </label>
               )}
             </div>
@@ -1570,6 +1611,13 @@ function AddCard({
                 Enter the code printed on the Japanese card (such as SV4a) and its number.
                 A number alone can appear in many sets; select the correct artwork and set
                 before adding. Japanese card names are searched in Japanese.
+              </p>
+            )}
+            {isChinese && (
+              <p className="muted" role="note">
+                Select Traditional or Simplified Chinese to match your actual card.
+                Enter its printed set code and collector number to find the correct
+                printing. Do not substitute a matching English or Japanese edition.
               </p>
             )}
             <div className="entry-actions">
@@ -1596,7 +1644,43 @@ function AddCard({
             />
           )}
 
-          {scanNotice && <div className="scan-notice">{scanNotice}</div>}
+          {scanNotice && <div className="scan-notice" role="status">{scanNotice}</div>}
+
+          {isChinese && !selected && (
+            <article className="panel">
+              <div className="section-title">
+                <strong>Chinese card not listed?</strong>
+                <span>Save the physical printing to your collection without inventing a catalogue match.</span>
+              </div>
+              <button type="button" className="ghost"
+                onClick={() => setManualChineseVisible(!manualChineseVisible)}>
+                {manualChineseVisible ? "Hide manual entry" : "Add unlisted Chinese card"}
+              </button>
+              {manualChineseVisible && (
+                <div className="form-grid two">
+                  <label><span>Printed Chinese name (required)</span>
+                    <input value={name} onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. 皮卡丘" />
+                  </label>
+                  <label><span>Printed collector number (required)</span>
+                    <input value={number} onChange={(e) => setNumber(e.target.value)}
+                      placeholder="e.g. 023/190" />
+                  </label>
+                  <label><span>Printed set code (required)</span>
+                    <input value={chineseSetCode} onChange={(e) => setChineseSetCode(e.target.value)}
+                      placeholder="e.g. CSV9C" />
+                  </label>
+                  <label><span>Set name (optional)</span>
+                    <input value={chineseSetName} onChange={(e) => setChineseSetName(e.target.value)}
+                      placeholder="Use the printed set name if known" />
+                  </label>
+                  <button type="button" className="primary" onClick={createUnlistedChinese}>
+                    <Plus size={17} /> Review unlisted printing
+                  </button>
+                </div>
+              )}
+            </article>
+          )}
 
           {!!results.length && !selected && (
             <div className="search-results">
