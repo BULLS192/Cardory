@@ -41,7 +41,8 @@ import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "
 import CardScanner from "@/components/CardScanner";
 import SetCompletionView from "@/components/SetCompletion";
 import { makeUnlistedChineseIdentity, parseChineseNumber } from "@/lib/chinese-card-search";
-import { newBinder, replaceBinderCards, replaceBinderDetails, validateBinder, validateBinderUpdate } from "@/lib/binder-helpers";
+import { newBinder, replaceBinderCards, replaceBinderDetails, validateBinder } from "@/lib/binder-helpers";
+import EditBinder from "@/components/EditBinder";
 import PortfolioValueSummary from "@/components/PortfolioValueSummary";
 import {
   calculatePortfolioValue, formatPortfolioAmounts, groupOwnedSets, type ValueMode,
@@ -442,7 +443,6 @@ export default function Home() {
   }, [ready, session, cloudHydrated]);
 
   const totalCards = state.cards.reduce((sum, card) => sum + card.quantity, 0);
-  const collectionValue = formatPortfolioAmounts(calculatePortfolioValue(state.cards, valueMode).amounts);
 
   const allTags = useMemo(
     () => [...new Set(state.cards.flatMap((card) => allCardTags(card)))].sort(),
@@ -676,7 +676,6 @@ export default function Home() {
             cards={state.cards}
             binders={state.binders}
             totalCards={totalCards}
-            collectionValue={collectionValue}
             valueMode={valueMode}
             onValueModeChange={setValueMode}
             onAdd={() => setTab("add")}
@@ -910,7 +909,6 @@ function Dashboard({
   cards,
   binders,
   totalCards,
-  collectionValue,
   valueMode,
   onValueModeChange,
   onAdd,
@@ -919,7 +917,6 @@ function Dashboard({
   cards: OwnedCard[];
   binders: Binder[];
   totalCards: number;
-  collectionValue: string;
   valueMode: ValueMode;
   onValueModeChange: (mode: ValueMode) => void;
   onAdd: () => void;
