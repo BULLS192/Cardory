@@ -46,7 +46,9 @@ function downloadJson(set: CatalogSetDetail, language: CatalogLanguage) {
   // Metadata and image source URLs only: never embed or mirror card art.
   const data = {
     provider: set.id.startsWith("tcgplayer-") ? "TCGCSV" : "TCGdex",
-    upstream: set.id.startsWith("tcgplayer-")\n      ? "https://tcgcsv.com/tcgplayer/3/" + set.id.slice("tcgplayer-".length) + "/products"\n      : "https://api.tcgdex.net/v2/" + language + "/sets/" + set.id,
+    upstream: set.id.startsWith("tcgplayer-")
+      ? "https://tcgcsv.com/tcgplayer/3/" + set.id.slice("tcgplayer-".length) + "/products"
+      : "https://api.tcgdex.net/v2/" + language + "/sets/" + set.id,
     language,
     exportedAt: new Date().toISOString(),
     set,
