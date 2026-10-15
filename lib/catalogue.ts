@@ -4,7 +4,7 @@
  * All IDs and language codes are validated before contacting the fixed upstream.
  * Card images are referenced, never downloaded or mirrored.
  */
-export const CATALOG_LANGUAGES = ["en", "ja", "zh-tw"] as const;
+export const CATALOG_LANGUAGES = ["en", "ja", "zh-tw", "zh-cn"] as const;
 export type CatalogLanguage = (typeof CATALOG_LANGUAGES)[number];
 
 export type CatalogCard = {

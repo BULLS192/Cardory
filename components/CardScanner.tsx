@@ -3,6 +3,7 @@
 import { Camera, Check, Image as ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CardGame, CardLanguage } from "@/lib/types";
+import { extractChineseCollectorNumber } from "@/lib/chinese-collector-ocr";
 
 type ScannerProps = {
   game: CardGame;
@@ -41,12 +42,12 @@ function extractCollectorNumber(raw: string) {
   return standalone ? normalizeCandidate(standalone[1]) : "";
 }
 
-function preprocessCanvas(source: HTMLCanvasElement) {
+function preprocessCanvas(source: HTMLCanvasElement, chinese = false) {
   const output = document.createElement("canvas");
   const context = output.getContext("2d", { willReadFrequently: true });
   if (!context) return source;
 
-  const cropTop = Math.floor(source.height * 0.60);
+  const cropTop = Math.floor(source.height * (chinese ? 0.40 : 0.60));
   const cropHeight = Math.max(1, source.height - cropTop);
   const maxWidth = 1600;
   const scale = Math.min(2, maxWidth / source.width);
@@ -143,11 +144,20 @@ export default function CardScanner({
   async function recognize(canvas: HTMLCanvasElement) {
     setStatus("processing");
     setProgress(0);
-    setMessage("Reading the collector number on-device…");
+    const chinese = game === "pokemon" &&
+      (language === "Chinese" || language === "Chinese Simplified");
+    setMessage(chinese ? "Reading Chinese set code and collector number on-device…"
+      : "Reading the collector number on-device…");
 
+    let worker: Awaited<ReturnType<(typeof import("tesseract.js"))["createWorker"]>> | null = null;
     try {
       const { createWorker } = await import("tesseract.js");
-      const worker = await createWorker("eng", undefined, {
+      // Only load the additional language pack when scanning Chinese cards;
+      // keep existing English/Japanese scanning performance unchanged.
+      const langs = language === "Chinese"
+        ? ["eng", "chi_tra"] : language === "Chinese Simplified"
+          ? ["eng", "chi_sim"] : ["eng"];
+      worker = await createWorker(langs, undefined, {
         logger: (entry) => {
           if (entry.status === "recognizing text" && typeof entry.progress === "number") {
             setProgress(Math.round(entry.progress * 100));
@@ -155,32 +165,46 @@ export default function CardScanner({
         },
       });
 
-      await worker.setParameters({
-        tessedit_char_whitelist: "0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz*",
-        preserve_interword_spaces: "1",
-      });
+      if (!chinese) {
+        await worker.setParameters({
+          tessedit_char_whitelist: "0123456789/ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz*",
+          preserve_interword_spaces: "1",
+        });
+      } else {
+        await worker.setParameters({ preserve_interword_spaces: "1" });
+      }
 
-      const processed = preprocessCanvas(canvas);
-      const result = await worker.recognize(processed);
-      await worker.terminate();
+      const first = await worker.recognize(preprocessCanvas(canvas, chinese));
+      let text = first.data.text?.trim() ?? "";
+      let number = chinese ? extractChineseCollectorNumber(text) : extractCollectorNumber(text);
 
-      const text = result.data.text?.trim() ?? "";
-      const number = extractCollectorNumber(text);
+      // The set code isn't consistently in the last 40% on Chinese cards.
+      // A second full-image pass is safer than guessing from a damage or HP stat.
+      if (chinese && (!number || !/^[A-Z0-9.\\-]+\\s+\\d/.test(number))) {
+        const second = await worker.recognize(canvas);
+        const secondText = second.data.text?.trim() ?? "";
+        text = [text, secondText].filter(Boolean).join("\n");
+        const secondNumber = extractChineseCollectorNumber(secondText);
+        if (secondNumber && (!number || /^[A-Z0-9.\\-]+\\s+\\d/.test(secondNumber))) {
+          number = secondNumber;
+        }
+      }
 
       setRawText(text);
       setCandidate(number);
-
       if (!number) {
         setStatus("error");
-        setMessage("I could not confidently read a collector number. Retake the photo or type the number below.");
+        setMessage("Could not confidently find the printed set code and collector number. Retake the photo or enter them manually.");
         return;
       }
 
       setStatus("result");
-      setMessage(`Detected ${number}. Confirm it or correct the number before searching.`);
+      setMessage(`Detected ${number}. Confirm the printed code and number before searching.`);
     } catch {
       setStatus("error");
-      setMessage("OCR could not complete. Retake the photo or enter the collector number manually.");
+      setMessage("OCR could not complete on this device. Retake the photo or enter the printed code and number manually.");
+    } finally {
+      if (worker) await worker.terminate().catch(() => undefined);
     }
   }
 
@@ -222,7 +246,8 @@ export default function CardScanner({
   }
 
   async function confirm() {
-    const normalized = normalizeCandidate(candidate);
+    const normalized = game === "pokemon" && (language === "Chinese" || language === "Chinese Simplified")
+      ? candidate.normalize("NFKC").trim() : normalizeCandidate(candidate);
     if (!normalized) return;
     await onDetected(normalized, rawText);
   }
@@ -310,7 +335,7 @@ export default function CardScanner({
             <input
               value={candidate}
               onChange={(event) => setCandidate(event.target.value)}
-              placeholder={game === "riftbound" ? "030/298 or 030a/298" : "203/193"}
+              placeholder={game === "riftbound" ? "030/298 or 030a/298" : (language === "Chinese" || language === "Chinese Simplified") ? "CSV9C 023/190" : "203/193"}
             />
           </label>
 
@@ -329,7 +354,7 @@ export default function CardScanner({
       )}
 
       <p className="scanner-footnote">
-        Tip: fill most of the frame with one card, keep it upright, and avoid glare over the collector number.
+        Tip: fill most of the frame with one card, keep it upright, and avoid glare over the collector number. Chinese printings: include the Latin set code beside the printed number.
       </p>
     </article>
   );

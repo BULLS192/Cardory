@@ -14,11 +14,12 @@ const LANGUAGES: { code: CatalogLanguage; label: string }[] = [
   { code: "en", label: "English" },
   { code: "ja", label: "Japanese" },
   { code: "zh-tw", label: "Traditional Chinese" },
+  { code: "zh-cn", label: "Simplified Chinese" },
 ];
 
 function getLanguageLabel(language: CatalogLanguage) {
   return language === "ja" ? "Japanese"
-    : language === "zh-tw" ? "Chinese" : "English";
+    : language === "zh-tw" ? "Chinese" : language === "zh-cn" ? "Chinese Simplified" : "English";
 }
 
 function safeDownload(content: string, filename: string) {

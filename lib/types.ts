@@ -1,5 +1,5 @@
 export type CardGame = "pokemon" | "riftbound";
-export type CardLanguage = "English" | "Japanese" | "Chinese";
+export type CardLanguage = "English" | "Japanese" | "Chinese" | "Chinese Simplified";
 export type CardVariant = "normal" | "foil" | "holofoil" | "reverse-holofoil" | "1st-edition" | "1st-edition-holofoil" | "unlimited" | "unlimited-holofoil";
 export type CardCondition = "NM" | "LP" | "MP" | "HP" | "DMG";
 export type AcquisitionType = "pack" | "single" | "sealed" | "trade" | "gift" | "other";

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { tcgdexBase } from "@/lib/tcgdex";
 import { searchJapaneseCards } from "@/lib/japanese-card-search";
+import { searchChineseCards } from "@/lib/chinese-card-search";
 import { searchRecentTcgCsv } from "@/lib/tcgcsv";
 import { searchRiftbound } from "@/lib/riftbound";
 import { CardLanguage } from "@/lib/types";
@@ -25,6 +26,7 @@ function normalizeName(value?: string) {
 function languageFromQuery(value: string | null): CardLanguage {
   if (value === "Japanese") return "Japanese";
   if (value === "Chinese") return "Chinese";
+  if (value === "Chinese Simplified") return "Chinese Simplified";
   return "English";
 }
 
@@ -56,6 +58,14 @@ export async function GET(request: NextRequest) {
         { error: "Japanese card catalogue is temporarily unavailable. Please retry." },
         { status: 502 }
       );
+    }
+  }
+
+  if ((language === "Chinese" || language === "Chinese Simplified") && (number || setCode)) {
+    try {
+      return NextResponse.json(await searchChineseCards(name, number, setCode, language));
+    } catch {
+      return NextResponse.json({ error: "Chinese card catalogue temporarily unavailable. Please retry or save the unlisted printing." }, { status: 502 });
     }
   }
 
