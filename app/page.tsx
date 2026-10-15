@@ -41,7 +41,11 @@ import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "
 import CardScanner from "@/components/CardScanner";
 import SetCompletionView from "@/components/SetCompletion";
 import { makeUnlistedChineseIdentity, parseChineseNumber } from "@/lib/chinese-card-search";
-import { newBinder, replaceBinderCards, validateBinder } from "@/lib/binder-helpers";
+import { newBinder, replaceBinderCards, replaceBinderDetails, validateBinder, validateBinderUpdate } from "@/lib/binder-helpers";
+import PortfolioValueSummary from "@/components/PortfolioValueSummary";
+import {
+  calculatePortfolioValue, formatPortfolioAmounts, groupOwnedSets, type ValueMode,
+} from "@/lib/portfolio";
 import CloudAccount, { type CloudStatus } from "@/components/CloudAccount";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import {
@@ -223,6 +227,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const [sort, setSort] = useState<"added" | "name" | "value" | "set">("added");
+  const [valueMode, setValueMode] = useState<ValueMode>("copies");
   const [syncing, setSyncing] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [session, setSession] = useState<Session | null>(null);
@@ -437,16 +442,7 @@ export default function Home() {
   }, [ready, session, cloudHydrated]);
 
   const totalCards = state.cards.reduce((sum, card) => sum + card.quantity, 0);
-  const collectionValue = Object.entries(
-    state.cards.reduce<Record<string, number>>((totals, card) => {
-      if (card.marketPrice == null) return totals;
-      const currency = card.marketCurrency ?? "USD";
-      totals[currency] = (totals[currency] ?? 0) + card.marketPrice * card.quantity;
-      return totals;
-    }, {})
-  )
-    .map(([currency, value]) => money(value, currency))
-    .join(" · ") || "—";
+  const collectionValue = formatPortfolioAmounts(calculatePortfolioValue(state.cards, valueMode).amounts);
 
   const allTags = useMemo(
     () => [...new Set(state.cards.flatMap((card) => allCardTags(card)))].sort(),
@@ -681,6 +677,8 @@ export default function Home() {
             binders={state.binders}
             totalCards={totalCards}
             collectionValue={collectionValue}
+            valueMode={valueMode}
+            onValueModeChange={setValueMode}
             onAdd={() => setTab("add")}
             onCards={() => setTab("cards")}
           />
@@ -689,6 +687,8 @@ export default function Home() {
         {tab === "sets" && (
           <SetCompletionView
             ownedCards={state.cards}
+            valueMode={valueMode}
+            onValueModeChange={setValueMode}
             onScan={() => { setReturnToSets(true); setTab("add"); }}
           />
         )}
@@ -701,6 +701,9 @@ export default function Home() {
               description="One master library. Organize it in as many different ways as you want."
               action={<button className="primary" onClick={() => setTab("add")}><Plus size={17} /> Add card</button>}
             />
+
+            <PortfolioValueSummary cards={state.cards} mode={valueMode}
+              onChange={setValueMode} label="All cards · market value" />
 
             <div className="toolbar">
               <label className="searchbox">
@@ -837,6 +840,8 @@ export default function Home() {
             cloudStatus={cloudStatus}
             cloudError={cloudError}
             cloudReady={!session?.user || cloudHydrated}
+            valueMode={valueMode}
+            onValueModeChange={setValueMode}
             onRetrySync={() => setState((current) => ({ ...current, binders: [...current.binders] }))}
           />
         )}
@@ -906,6 +911,8 @@ function Dashboard({
   binders,
   totalCards,
   collectionValue,
+  valueMode,
+  onValueModeChange,
   onAdd,
   onCards,
 }: {
@@ -913,11 +920,15 @@ function Dashboard({
   binders: Binder[];
   totalCards: number;
   collectionValue: string;
+  valueMode: ValueMode;
+  onValueModeChange: (mode: ValueMode) => void;
   onAdd: () => void;
   onCards: () => void;
 }) {
   const favorites = cards.filter((card) => card.favorite).length;
   const recent = cards.slice(0, 5);
+  const allValues = calculatePortfolioValue(cards, valueMode);
+  const ownedSets = groupOwnedSets(cards);
 
   return (
     <section>
@@ -928,11 +939,14 @@ function Dashboard({
         action={<button className="primary" onClick={onAdd}><Plus size={17} /> Add a card</button>}
       />
 
+      <PortfolioValueSummary cards={cards} mode={valueMode}
+        onChange={onValueModeChange} label="Total collection market value" />
+
       <div className="stat-grid">
-        <Stat icon={<Grid2X2 size={18} />} label="Unique cards" value={cards.length.toLocaleString()} />
+        <Stat icon={<Grid2X2 size={18} />} label="Unique printings" value={allValues.unique.toLocaleString()} />
         <Stat icon={<Tags size={18} />} label="Physical cards" value={totalCards.toLocaleString()} />
-        <Stat icon={<CircleDollarSign size={18} />} label="Market value" value={collectionValue} />
         <Stat icon={<BookOpen size={18} />} label="Binders" value={binders.length.toLocaleString()} />
+        <Stat icon={<BookOpen size={18} />} label="Sets owned" value={ownedSets.length.toLocaleString()} />
       </div>
 
       <div className="dashboard-grid">
@@ -967,6 +981,43 @@ function Dashboard({
             <span><Check size={14} /> Manual order-ready data model</span>
           </div>
           <div className="favorite-count"><Heart size={17} /> {favorites} favorite{favorites === 1 ? "" : "s"}</div>
+        </article>
+      </div>
+
+      <div className="portfolio-breakdown">
+        <article className="panel">
+          <div className="panel-heading"><div><span className="eyebrow">Portfolio</span>
+            <h2>Value by binder</h2></div></div>
+          <p className="portfolio-footnote">Cards may appear in multiple binders. Do not add binder totals together.</p>
+          {binders.length ? binders.map((binder) => {
+            const report = calculatePortfolioValue(binderCards(binder, cards), valueMode);
+            return (
+              <div className="portfolio-breakdown-row" key={binder.id}>
+                <span><strong>{binder.name}</strong>
+                  <small>{report.counted} {valueMode === "copies" ? "copies" : "unique printings"}
+                    {report.unpriced ? " · " + report.unpriced + " unpriced" : ""}</small>
+                </span>
+                <b>{formatPortfolioAmounts(report.amounts)}</b>
+              </div>
+            );
+          }) : <div className="mini-empty">Create a binder to see its value.</div>}
+        </article>
+        <article className="panel">
+          <div className="panel-heading"><div><span className="eyebrow">Portfolio</span>
+            <h2>Value by set</h2></div></div>
+          <p className="portfolio-footnote">Grouped by game, language and recorded set identity.</p>
+          {ownedSets.length ? ownedSets.map((set) => {
+            const report = calculatePortfolioValue(set.cards, valueMode);
+            return (
+              <div className="portfolio-breakdown-row" key={set.key}>
+                <span><strong>{set.setName}</strong>
+                  <small>{set.language} · {report.counted} {valueMode === "copies" ? "copies" : "unique printings"}
+                    {report.unpriced ? " · " + report.unpriced + " unpriced" : ""}</small>
+                </span>
+                <b>{formatPortfolioAmounts(report.amounts)}</b>
+              </div>
+            );
+          }) : <div className="mini-empty">Your set values will appear here.</div>}
         </article>
       </div>
     </section>
