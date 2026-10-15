@@ -180,11 +180,14 @@ export default function CardScanner({
 
       // The set code isn't consistently in the last 40% on Chinese cards.
       // A second full-image pass is safer than guessing from a damage or HP stat.
-      if (chinese && !number) {
+      if (chinese && (!number || !/^[A-Z0-9.\\-]+\\s+\\d/.test(number))) {
         const second = await worker.recognize(canvas);
         const secondText = second.data.text?.trim() ?? "";
         text = [text, secondText].filter(Boolean).join("\n");
-        number = extractChineseCollectorNumber(secondText);
+        const secondNumber = extractChineseCollectorNumber(secondText);
+        if (secondNumber && (!number || /^[A-Z0-9.\\-]+\\s+\\d/.test(secondNumber))) {
+          number = secondNumber;
+        }
       }
 
       setRawText(text);
