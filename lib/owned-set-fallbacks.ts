@@ -12,7 +12,7 @@ export function mergeSetsWithOwned(
   language: CatalogLanguage
 ): { sets: CatalogSet[]; missingChecklists: string[] } {
   const targetLanguage = language === "en" ? "English"
-    : language === "ja" ? "Japanese" : "Chinese";
+    : language === "ja" ? "Japanese" : language === "zh-cn" ? "Chinese Simplified" : "Chinese";
   const merged = new Map(indexed.map((set) => [set.id, set]));
   const missingChecklists = new Set<string>();
   for (const card of ownedCards) {
