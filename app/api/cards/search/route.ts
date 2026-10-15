@@ -66,7 +66,11 @@ export async function GET(request: NextRequest) {
     ? await dexResponse.json().catch(() => [])
     : [];
   const rawDexResults: Record<string, unknown>[] = Array.isArray(upstream) ? upstream : [];
-  const dexResults = rawDexResults.map((card: Record<string, unknown>) => {
+  const dexResults = rawDexResults
+    .filter((card): card is Record<string, unknown> & { id: string; name: string } =>
+      typeof card.id === "string" && typeof card.name === "string"
+    )
+    .map((card) => {
     const cardId = typeof card.id === "string" ? card.id : "";
     const rawSet = card.set as { id?: string; name?: string } | undefined;
     const derivedSetId =
