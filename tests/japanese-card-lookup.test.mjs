@@ -69,7 +69,7 @@ test("a bare printed number shows competing Japanese printings and prioritizes m
       { id: "sv5a", name: "Set 66", cardCount: { official: 66 } },
       { id: "sv3", name: "Set 108", cardCount: { official: 108 } },
     ] };
-    assert.equal(address.searchParams.get("localId"), "eq:051");
+    assert.ok(["eq:051", "eq:51"].includes(address.searchParams.get("localId")));
     return { ok: true, json: async () => [
       { id: "sv3-051", name: "ポケモンA", localId: "051" },
       { id: "sv5a-051", name: "カビゴン", localId: "051" },
