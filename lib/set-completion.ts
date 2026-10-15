@@ -35,7 +35,7 @@ export function calculateSetCompletion(
   owned: OwnedCard[]
 ): SetCompletion {
   const languageName = language === "en" ? "English"
-    : language === "ja" ? "Japanese" : "Chinese";
+    : language === "ja" ? "Japanese" : language === "zh-cn" ? "Chinese Simplified" : "Chinese";
   const relevant = owned.filter(
     (item) => (item.game ?? "pokemon") === "pokemon" &&
       (item.language ?? "English") === languageName
