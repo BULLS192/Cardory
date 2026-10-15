@@ -9,6 +9,7 @@ import { buildPortfolioHistory, rangeHistory, availableHistoryCurrencies,
 import { ValueModeSwitch } from "@/components/PortfolioValueSummary";
 import SetMarketBenchmarks from "@/components/SetMarketBenchmarks";
 import HistoryCoverageTable from "@/components/HistoryCoverageTable";
+import { isHistoricalEstimate } from "@/lib/history-coverage";
 import type { HistoryBasis } from "@/lib/portfolio-history";
 
 export type HistoricalScope = {
@@ -25,8 +26,9 @@ function dateLabel(date: string): string {
   });
 }
 
-/** Render price snapshots as an honest price series: no interpolated releases,
- * no generated backfill and no FX conversion of independent currencies. */
+/** Exact-dated source points are plotted; some imported source readings are
+ * estimated market values and may be interpolated by their publisher.
+ * No CARDORY-generated backfill or unsupported FX conversion is performed. */
 function PriceHistoryChart({ values, currency }: {
   values: { date: string; amount: number }[]; currency: string;
 }) {
@@ -96,6 +98,7 @@ export default function PortfolioHistory({
   const [truncated, setTruncated] = useState(false);
   const [scopeId, setScopeId] = useState("all");
   const [historyBasis, setHistoryBasis] = useState<HistoryBasis>("owned");
+  const [historySource, setHistorySource] = useState<"all" | "reported">("all");
   const [range, setRange] = useState<HistoryRange>("ALL");
   const [unit, setUnit] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -158,9 +161,14 @@ export default function PortfolioHistory({
     ];
   }, [cards,binders]);
   const scope = options.find(option => option.id===scopeId) || options[0];
+  const sourceReadings = useMemo(() =>
+    historySource === "all" ? readings : readings.filter(item => !isHistoricalEstimate(item.source)),
+    [readings, historySource]);
+  const estimatedQuoteCount = readings.filter(item => isHistoricalEstimate(item.source)).length;
+  const reportedQuoteCount = readings.length - estimatedQuoteCount;
   const history = useMemo(() => buildPortfolioHistory(
-    scope.cards, readings, valueMode, historyBasis),
-    [scope.cards, readings, valueMode, historyBasis]);
+    scope.cards, sourceReadings, valueMode, historyBasis),
+    [scope.cards, sourceReadings, valueMode, historyBasis]);
   const withinRange = rangeHistory(history, range);
   // An incomplete historical basket is not a meaningful total portfolio
   // valuation. Permit sparse data for the individual card scope only.
@@ -182,7 +190,7 @@ export default function PortfolioHistory({
       <div className="panel-heading">
         <div><span className="eyebrow">CARDORY PORTFOLIO INTELLIGENCE</span>
           <h1>Portfolio history</h1>
-          <p>Follow real market-price observations for your cards, binders, and sets.</p>
+          <p>Explore dated market quotes and clearly labeled historical estimates across cards, binders, and sets.</p>
         </div>
         <button type="button" className="ghost" onClick={()=>setRefresh(value=>value+1)}
           disabled={loading || !ownerId}>Refresh chart</button>
@@ -214,6 +222,13 @@ export default function PortfolioHistory({
                 <option value="market">Since release · selected cards (market-only)</option>
               </select>
             </label>
+            <label><span>Historical price source</span>
+              <select aria-label="Historical price source" value={historySource}
+                onChange={event=>setHistorySource(event.target.value as "all" | "reported")}>
+                <option value="all">All historical prices · including estimates</option>
+                <option value="reported">Reported market quotes only</option>
+              </select>
+            </label>
             <ValueModeSwitch mode={valueMode} onChange={onValueModeChange} />
             <div className="history-ranges" role="group" aria-label="Historical date range">
               {(["1M","3M","1Y","ALL"] as const).map(value => (
@@ -238,14 +253,18 @@ export default function PortfolioHistory({
               </div>
               <PriceHistoryChart values={plot} currency={currentUnit} />
               <p className="portfolio-footnote">
-                {readings.length.toLocaleString()} actual recorded card-price observations.
+                {readings.length.toLocaleString()} dated records:
+                {" "}{reportedQuoteCount.toLocaleString()} reported/recorded market quotes
+                and {" "}{estimatedQuoteCount.toLocaleString()} indicative third-party estimates.
                 {incompleteDays ? ` ${incompleteDays} dates excluded because fewer than 95% of selected positions had historical prices.` : ""}
                 {latest ? ` Latest: ${dateLabel(latest.date)} · ${latest.priced} priced · ${latest.unpriced} unpriced positions.` : ""}
                 {truncated ? " Older records exceed the current 50,000-row display limit." : ""}
               </p>
               <p className="portfolio-footnote">
                 {firstAcquisition ? `Earliest purchase or addition in this view: ${dateLabel(firstAcquisition)}. ` : ""}
-                Historical values begin only on dates with actual card-price evidence.
+                Historical values begin only on dates with provider price evidence.
+                Third-party historical estimates may include modeled or interpolated values,
+                are not individual sales, and should not be treated as proven returns.
                 {historyBasis === "market"
                   ? " This is a retrospective price check of today's selected cards, even before you bought them; it is NOT your past portfolio value or profit."
                   : " This follows currently held cards from their recorded purchase dates. Purchases and additions affect the total, so changes in value are NOT investment profit."}

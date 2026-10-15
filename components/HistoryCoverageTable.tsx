@@ -6,7 +6,7 @@ import type { PriceObservation } from "@/lib/portfolio-history";
 import { buildCardHistoryCoverage, summarizeHistoryCoverage } from "@/lib/history-coverage";
 import { formatPortfolioAmounts } from "@/lib/portfolio";
 
-type CoverageFilter = "all" | "older" | "missing" | "unpriced";
+type CoverageFilter = "all" | "older" | "reported" | "estimated" | "missing" | "unpriced";
 function dateLabel(date: string | null) {
   if (!date) return "No recorded price";
   return new Date(date + "T12:00:00Z").toLocaleDateString("en-SG", {
@@ -35,6 +35,8 @@ export default function HistoryCoverageTable({
   const [expanded, setExpanded] = useState(false);
   const matching = rows.filter(row => {
     if (filter === "older" && (!row.firstDate || row.firstDate >= baseline)) return false;
+    if (filter === "reported" && !row.hasOlderReportedQuote) return false;
+    if (filter === "estimated" && (!row.hasOlderEstimatedQuote || row.hasOlderReportedQuote)) return false;
     if (filter === "missing" && row.firstDate && row.firstDate < baseline) return false;
     if (filter === "unpriced" && row.observedDays) return false;
     const text = [row.name,row.localId,row.setName,row.variant,row.language].join(" ").toLowerCase();
@@ -47,14 +49,14 @@ export default function HistoryCoverageTable({
         <div>
           <span className="eyebrow">FULL COLLECTION · DATA COVERAGE</span>
           <h2>History for every card</h2>
-          <p>Every distinct printing is included, even when older market prices have not been found.</p>
+          <p>Every distinct printing is included. Distinguish published market quotes from indicative historical price estimates.</p>
         </div>
       </div>
       <div className="history-coverage-stats">
         <div><strong>{summary.printings}</strong><span>Distinct printings</span></div>
-        <div><strong>{summary.withOlderHistory}</strong><span>Earlier price evidence</span></div>
-        <div><strong>{summary.withoutOlderHistory}</strong><span>Need older source</span></div>
-        <div><strong>{summary.withAnyHistory}</strong><span>With any recorded price</span></div>
+        <div><strong>{summary.withOlderHistory}</strong><span>Historical coverage</span></div>
+        <div><strong>{summary.withOlderReportedQuote}</strong><span>Reported past quotes</span></div>
+        <div><strong>{summary.withOnlyEstimatedOlder}</strong><span>Only indicative estimates</span></div>
       </div>
       <div className="history-coverage-tools">
         <label>
@@ -67,7 +69,9 @@ export default function HistoryCoverageTable({
           <select value={filter} onChange={e=>setFilter(e.target.value as CoverageFilter)}
             aria-label="Filter historical price coverage">
             <option value="all">All cards</option>
-            <option value="older">Older history found</option>
+            <option value="older">Any historical pricing</option>
+            <option value="reported">Historical reported quotes</option>
+            <option value="estimated">Historical estimates only</option>
             <option value="missing">Missing older history</option>
             <option value="unpriced">No recorded price at all</option>
           </select>
@@ -103,11 +107,16 @@ export default function HistoryCoverageTable({
                 </td>
                 <td>{row.observedDays || "—"}</td>
                 <td>{row.firstDate && row.firstDate < baseline
-                  ? <strong className="history-sourced">{row.source?.includes("USER_CSV_UNVERIFIED") ? "Imported (unverified)" : "Documented"}</strong>
+                  ? <strong className={row.hasOlderReportedQuote ? "history-sourced" : "history-not-yet"}>
+                      {row.hasOlderReportedQuote ? "Reported quote" : "Indicative estimate"}
+                    </strong>
                   : <span className="history-not-yet">Needs source</span>}
                   {row.source?.includes("BillsArchive") &&
                     <small><a href="https://billsarchive.com/articles/30th-celebration-prices-release-to-now.html"
-                      target="_blank" rel="noopener noreferrer">Release-day evidence</a></small>}
+                      target="_blank" rel="noopener noreferrer">Published market report</a></small>}
+                  {row.source?.includes("KnowMyCards:PokemonPriceTracker:https://knowmycards.com/cards/") &&
+                    <small><a href={row.source.split("KnowMyCards:PokemonPriceTracker:")[1]}
+                      target="_blank" rel="noopener noreferrer">Historical estimate source</a></small>}
                 </td>
               </tr>
             ))}
@@ -122,10 +131,11 @@ export default function HistoryCoverageTable({
           {expanded ? "Show fewer" : "Show all " + matching.length + " printings"}
         </button>}
       <p className="portfolio-footnote">
-        Baseline began October 15, 2026. Older history counts only actual dated
-        card-specific observations. A set index is not a substitute for an exact
-        card-and-printing market quote. Source coverage differs by game, language,
-        condition, and release date.
+        CARDORY's direct observation baseline began October 15, 2026.
+        Earlier price history includes third-party market estimates that may have
+        been sampled or interpolated. All matches use the exact TCGplayer product
+        ID, English-language Holofoil printing and Near Mint condition;
+        estimates are not recorded sales or guaranteed transaction prices.
       </p>
     </section>
   );

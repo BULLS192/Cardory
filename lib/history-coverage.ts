@@ -22,7 +22,16 @@ export type CardHistoryCoverage = {
   lastPrice: number | null;
   lastCurrency: string | null;
   source: string | null;
+  firstIsEstimate: boolean;
+  hasOlderReportedQuote: boolean;
+  hasOlderEstimatedQuote: boolean;
 };
+
+/** Third-party modeled history is valuable context, not a verified sale. */
+export function isHistoricalEstimate(source?: string | null): boolean {
+  return Boolean(source && (source.includes("ESTIMATE") || source.includes("USER_CSV_UNVERIFIED")));
+}
+
 
 function quoteIsValid(item: PriceObservation): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(item.snapshot_day) &&
@@ -79,6 +88,9 @@ export function buildCardHistoryCoverage(
       lastPrice: latest ? Number(latest.market_price) : null,
       lastCurrency: latest?.currency || null,
       source: earliest?.source || null,
+      firstIsEstimate: isHistoricalEstimate(earliest?.source),
+      hasOlderReportedQuote: all.some(item => item.snapshot_day < "2026-10-15" && !isHistoricalEstimate(item.source)),
+      hasOlderEstimatedQuote: all.some(item => item.snapshot_day < "2026-10-15" && isHistoricalEstimate(item.source)),
     });
   }
   return result.sort((a, b) => a.setName.localeCompare(b.setName)
@@ -92,6 +104,8 @@ export function summarizeHistoryCoverage(rows: CardHistoryCoverage[], baseline =
     records: rows.reduce((sum, item) => sum + item.recordCount, 0),
     withAnyHistory: rows.filter(item => item.observedDays > 0).length,
     withOlderHistory: rows.filter(item => item.firstDate && item.firstDate < baseline).length,
+    withOlderReportedQuote: rows.filter(item => item.hasOlderReportedQuote).length,
+    withOnlyEstimatedOlder: rows.filter(item => item.firstDate && item.firstDate < baseline && !item.hasOlderReportedQuote && item.hasOlderEstimatedQuote).length,
     withoutOlderHistory: rows.filter(item => !item.firstDate || item.firstDate >= baseline).length,
     withoutAnyHistory: rows.filter(item => item.observedDays === 0).length,
   };
