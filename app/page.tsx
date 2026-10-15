@@ -5,6 +5,7 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  ChartNoAxesCombined,
   Camera,
   Grid2X2,
   Heart,
@@ -44,6 +45,7 @@ import { makeUnlistedChineseIdentity, parseChineseNumber } from "@/lib/chinese-c
 import { newBinder, replaceBinderCards, replaceBinderDetails, validateBinder } from "@/lib/binder-helpers";
 import EditBinder from "@/components/EditBinder";
 import PortfolioValueSummary from "@/components/PortfolioValueSummary";
+import PortfolioHistory from "@/components/PortfolioHistory";
 import {
   calculatePortfolioValue, formatPortfolioAmounts, groupOwnedSets, type ValueMode,
 } from "@/lib/portfolio";
@@ -65,7 +67,7 @@ const emptyState: CollectionState = {
   lastGlobalPriceSync: null,
 };
 
-type Tab = "dashboard" | "cards" | "sets" | "binders" | "add";
+type Tab = "dashboard" | "cards" | "sets" | "binders" | "history" | "add";
 
 function id() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -230,6 +232,8 @@ export default function Home() {
   const [sort, setSort] = useState<"added" | "name" | "value" | "set">("added");
   const [valueMode, setValueMode] = useState<ValueMode>("copies");
   const [syncing, setSyncing] = useState(false);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [priceHistoryError, setPriceHistoryError] = useState("");
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [session, setSession] = useState<Session | null>(null);
   const [authReady, setAuthReady] = useState(false);
@@ -566,6 +570,40 @@ export default function Home() {
           };
         }),
       }));
+
+      // Save actual observed prices only. Do not fabricate a quote for
+      // unsupported printings or for dates prior to this synchronization.
+      if (session?.user.id && cloudHydrated) {
+        const observations = state.cards.flatMap((owned) => {
+          const key = `${owned.game ?? "pokemon"}|${owned.language ?? "English"}|${owned.tcgdexId}`;
+          const detailsForCard = details.get(key);
+          if (!detailsForCard) return [];
+          const quote = extractMarketPrice(detailsForCard, owned.variant);
+          if (quote.price == null || !Number.isFinite(quote.price) ||
+              quote.price < 0 || !/^[A-Z]{3}$/.test(quote.currency || "")) return [];
+          return [{
+            owner_id: session.user.id,
+            owned_card_id: owned.id,
+            market_price: quote.price,
+            currency: quote.currency!,
+            source: quote.source || "provider observation",
+            observed_at: syncedAt,
+          }];
+        });
+        if (observations.length) {
+          const client = getSupabaseBrowserClient();
+          if (client) {
+            const { error } = await client.from("price_snapshots").upsert(observations,
+              { onConflict: "owned_card_id,snapshot_day" });
+            if (error) {
+              setPriceHistoryError("Price sync succeeded, but historical snapshot storage failed: " + error.message);
+            } else {
+              setPriceHistoryError("");
+              setHistoryRevision((previous) => previous + 1);
+            }
+          }
+        }
+      }
     } finally {
       setSyncing(false);
     }
@@ -641,6 +679,7 @@ export default function Home() {
         <nav>
           <NavButton active={tab === "dashboard"} onClick={() => setTab("dashboard")} icon={<LayoutDashboard size={18} />} label="Dashboard" />
           <NavButton active={tab === "cards"} onClick={() => setTab("cards")} icon={<Grid2X2 size={18} />} label="My Cards" count={state.cards.length} />
+          <NavButton active={tab === "history"} onClick={() => setTab("history")} icon={<ChartNoAxesCombined size={18} />} label="Portfolio History" />
           <NavButton active={tab === "sets"} onClick={() => setTab("sets")} icon={<BookOpen size={18} />} label="Set Completion" />
           <NavButton active={tab === "binders"} onClick={() => setTab("binders")} icon={<BookOpen size={18} />} label="Binders" count={state.binders.length} />
           <NavButton active={tab === "add"} onClick={() => { setReturnToSets(false); setTab("add"); }} icon={<Plus size={18} />} label="Add Card" emphasize />
@@ -667,6 +706,7 @@ export default function Home() {
             <RefreshCw size={15} className={syncing ? "spin" : ""} />
             {syncing ? "Syncing prices…" : "Sync prices now"}
           </button>
+          {priceHistoryError && <p className="form-error" role="status">{priceHistoryError}</p>}
         </div>
       </aside>
 
@@ -681,6 +721,13 @@ export default function Home() {
             onAdd={() => setTab("add")}
             onCards={() => setTab("cards")}
           />
+        )}
+
+        {tab === "history" && (
+          <PortfolioHistory cards={state.cards} binders={state.binders}
+            ownerId={session?.user.id ?? null} valueMode={valueMode}
+            onValueModeChange={setValueMode}
+            priceRefresh={state.lastGlobalPriceSync + ":" + historyRevision} />
         )}
 
         {tab === "sets" && (
