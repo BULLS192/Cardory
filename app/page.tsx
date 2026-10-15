@@ -2129,7 +2129,7 @@ function BindersView({
                       Edit cards
                     </button>
                   )}
-                  <button type="button" className="danger-link" disabled={!cloudReady
+                  <button type="button" className="danger-link" disabled={!cloudReady}
                     onClick={() => {
                       if (!window.confirm(`Delete binder "${active.name}"? Your cards will not be deleted.`)) return;
                       onChange(binders.filter((binder) => binder.id !== active.id));
