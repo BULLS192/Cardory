@@ -46,3 +46,52 @@ export function replaceBinderCards(binders: Binder[], binderId: string, cardIds:
       ? { ...binder, cardIds: [...new Set(cardIds)] } : binder
   );
 }
+
+export type BinderUpdate = {
+  name: string;
+  description: string;
+  rules: SmartRule[];
+  match: Binder["match"];
+};
+
+export function validateBinderUpdate(binder: Binder, update: BinderUpdate): string | null {
+  if (!update.name.trim()) return "Enter a binder name.";
+  if (update.name.trim().length > 100) return "Binder name must be 100 characters or less.";
+  if (update.description.length > 500) return "Description must be 500 characters or less.";
+  if (binder.kind === "smart") {
+    if (!update.rules.length) return "Keep at least one smart binder rule.";
+    for (const rule of update.rules) {
+      if (!rule.value.trim()) return "Every smart binder rule needs a value.";
+      if (rule.field === "marketPrice") {
+        if (!Number.isFinite(Number(rule.value)) || Number(rule.value) < 0)
+          return "Enter a non-negative market value.";
+        if (!["gt", "gte", "lt", "lte", "equals"].includes(rule.operator))
+          return "Choose a valid market value comparison.";
+      } else if (!["contains", "equals"].includes(rule.operator) ||
+        rule.field === "favorite" && !["true", "false"].includes(rule.value)) {
+        return "Choose a valid rule operator or favorite value.";
+      }
+    }
+  }
+  return null;
+}
+
+/** Modify binder metadata, not identity, physical card records or membership. */
+export function replaceBinderDetails(
+  binders: Binder[], binderId: string, update: BinderUpdate
+): Binder[] {
+  return binders.map((binder) => {
+    if (binder.id !== binderId) return binder;
+    const error = validateBinderUpdate(binder, update);
+    if (error) throw new Error(error);
+    return {
+      ...binder,
+      name: update.name.trim(),
+      description: update.description.trim(),
+      rules: binder.kind === "smart" ? update.rules.map((rule) => ({
+        field: rule.field, operator: rule.operator, value: rule.value.trim(),
+      })) : binder.rules,
+      match: binder.kind === "smart" ? update.match : binder.match,
+    };
+  });
+}

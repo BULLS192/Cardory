@@ -41,7 +41,12 @@ import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "
 import CardScanner from "@/components/CardScanner";
 import SetCompletionView from "@/components/SetCompletion";
 import { makeUnlistedChineseIdentity, parseChineseNumber } from "@/lib/chinese-card-search";
-import { newBinder, replaceBinderCards, validateBinder } from "@/lib/binder-helpers";
+import { newBinder, replaceBinderCards, replaceBinderDetails, validateBinder } from "@/lib/binder-helpers";
+import EditBinder from "@/components/EditBinder";
+import PortfolioValueSummary from "@/components/PortfolioValueSummary";
+import {
+  calculatePortfolioValue, formatPortfolioAmounts, groupOwnedSets, type ValueMode,
+} from "@/lib/portfolio";
 import CloudAccount, { type CloudStatus } from "@/components/CloudAccount";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import {
@@ -223,6 +228,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [tagFilter, setTagFilter] = useState("");
   const [sort, setSort] = useState<"added" | "name" | "value" | "set">("added");
+  const [valueMode, setValueMode] = useState<ValueMode>("copies");
   const [syncing, setSyncing] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [session, setSession] = useState<Session | null>(null);
@@ -437,16 +443,6 @@ export default function Home() {
   }, [ready, session, cloudHydrated]);
 
   const totalCards = state.cards.reduce((sum, card) => sum + card.quantity, 0);
-  const collectionValue = Object.entries(
-    state.cards.reduce<Record<string, number>>((totals, card) => {
-      if (card.marketPrice == null) return totals;
-      const currency = card.marketCurrency ?? "USD";
-      totals[currency] = (totals[currency] ?? 0) + card.marketPrice * card.quantity;
-      return totals;
-    }, {})
-  )
-    .map(([currency, value]) => money(value, currency))
-    .join(" · ") || "—";
 
   const allTags = useMemo(
     () => [...new Set(state.cards.flatMap((card) => allCardTags(card)))].sort(),
@@ -680,7 +676,8 @@ export default function Home() {
             cards={state.cards}
             binders={state.binders}
             totalCards={totalCards}
-            collectionValue={collectionValue}
+            valueMode={valueMode}
+            onValueModeChange={setValueMode}
             onAdd={() => setTab("add")}
             onCards={() => setTab("cards")}
           />
@@ -689,6 +686,8 @@ export default function Home() {
         {tab === "sets" && (
           <SetCompletionView
             ownedCards={state.cards}
+            valueMode={valueMode}
+            onValueModeChange={setValueMode}
             onScan={() => { setReturnToSets(true); setTab("add"); }}
           />
         )}
@@ -701,6 +700,9 @@ export default function Home() {
               description="One master library. Organize it in as many different ways as you want."
               action={<button className="primary" onClick={() => setTab("add")}><Plus size={17} /> Add card</button>}
             />
+
+            <PortfolioValueSummary cards={state.cards} mode={valueMode}
+              onChange={setValueMode} label="All cards · market value" />
 
             <div className="toolbar">
               <label className="searchbox">
@@ -837,6 +839,8 @@ export default function Home() {
             cloudStatus={cloudStatus}
             cloudError={cloudError}
             cloudReady={!session?.user || cloudHydrated}
+            valueMode={valueMode}
+            onValueModeChange={setValueMode}
             onRetrySync={() => setState((current) => ({ ...current, binders: [...current.binders] }))}
           />
         )}
@@ -905,19 +909,23 @@ function Dashboard({
   cards,
   binders,
   totalCards,
-  collectionValue,
+  valueMode,
+  onValueModeChange,
   onAdd,
   onCards,
 }: {
   cards: OwnedCard[];
   binders: Binder[];
   totalCards: number;
-  collectionValue: string;
+  valueMode: ValueMode;
+  onValueModeChange: (mode: ValueMode) => void;
   onAdd: () => void;
   onCards: () => void;
 }) {
   const favorites = cards.filter((card) => card.favorite).length;
   const recent = cards.slice(0, 5);
+  const allValues = calculatePortfolioValue(cards, valueMode);
+  const ownedSets = groupOwnedSets(cards);
 
   return (
     <section>
@@ -928,11 +936,14 @@ function Dashboard({
         action={<button className="primary" onClick={onAdd}><Plus size={17} /> Add a card</button>}
       />
 
+      <PortfolioValueSummary cards={cards} mode={valueMode}
+        onChange={onValueModeChange} label="Total collection market value" />
+
       <div className="stat-grid">
-        <Stat icon={<Grid2X2 size={18} />} label="Unique cards" value={cards.length.toLocaleString()} />
+        <Stat icon={<Grid2X2 size={18} />} label="Unique printings" value={allValues.unique.toLocaleString()} />
         <Stat icon={<Tags size={18} />} label="Physical cards" value={totalCards.toLocaleString()} />
-        <Stat icon={<CircleDollarSign size={18} />} label="Market value" value={collectionValue} />
         <Stat icon={<BookOpen size={18} />} label="Binders" value={binders.length.toLocaleString()} />
+        <Stat icon={<BookOpen size={18} />} label="Sets owned" value={ownedSets.length.toLocaleString()} />
       </div>
 
       <div className="dashboard-grid">
@@ -967,6 +978,43 @@ function Dashboard({
             <span><Check size={14} /> Manual order-ready data model</span>
           </div>
           <div className="favorite-count"><Heart size={17} /> {favorites} favorite{favorites === 1 ? "" : "s"}</div>
+        </article>
+      </div>
+
+      <div className="portfolio-breakdown">
+        <article className="panel">
+          <div className="panel-heading"><div><span className="eyebrow">Portfolio</span>
+            <h2>Value by binder</h2></div></div>
+          <p className="portfolio-footnote">Cards may appear in multiple binders. Do not add binder totals together.</p>
+          {binders.length ? binders.map((binder) => {
+            const report = calculatePortfolioValue(binderCards(binder, cards), valueMode);
+            return (
+              <div className="portfolio-breakdown-row" key={binder.id}>
+                <span><strong>{binder.name}</strong>
+                  <small>{report.counted} {valueMode === "copies" ? "copies" : "unique printings"}
+                    {report.unpriced ? " · " + report.unpriced + " unpriced" : ""}</small>
+                </span>
+                <b>{formatPortfolioAmounts(report.amounts)}</b>
+              </div>
+            );
+          }) : <div className="mini-empty">Create a binder to see its value.</div>}
+        </article>
+        <article className="panel">
+          <div className="panel-heading"><div><span className="eyebrow">Portfolio</span>
+            <h2>Value by set</h2></div></div>
+          <p className="portfolio-footnote">Grouped by game, language and recorded set identity.</p>
+          {ownedSets.length ? ownedSets.map((set) => {
+            const report = calculatePortfolioValue(set.cards, valueMode);
+            return (
+              <div className="portfolio-breakdown-row" key={set.key}>
+                <span><strong>{set.setName}</strong>
+                  <small>{set.language} · {report.counted} {valueMode === "copies" ? "copies" : "unique printings"}
+                    {report.unpriced ? " · " + report.unpriced + " unpriced" : ""}</small>
+                </span>
+                <b>{formatPortfolioAmounts(report.amounts)}</b>
+              </div>
+            );
+          }) : <div className="mini-empty">Your set values will appear here.</div>}
         </article>
       </div>
     </section>
@@ -1978,6 +2026,8 @@ function BindersView({
   cloudError,
   cloudReady,
   onRetrySync,
+  valueMode,
+  onValueModeChange,
 }: {
   cards: OwnedCard[];
   binders: Binder[];
@@ -1986,10 +2036,13 @@ function BindersView({
   cloudError: string;
   cloudReady: boolean;
   onRetrySync: () => void;
+  valueMode: ValueMode;
+  onValueModeChange: (mode: ValueMode) => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(binders[0]?.id ?? null);
   const [editingCards, setEditingCards] = useState<string[] | null>(null);
+  const [editingBinder, setEditingBinder] = useState(false);
   const [binderNotice, setBinderNotice] = useState("");
   const active = binders.find((binder) => binder.id === activeId) ?? binders[0] ?? null;
   const visibleCards = active ? binderCards(active, cards) : [];
@@ -2024,6 +2077,7 @@ function BindersView({
             onChange([binder, ...binders]);
             setActiveId(binder.id);
             setEditingCards(null);
+            setEditingBinder(false);
             setShowCreate(false);
             setBinderNotice(`Created "${binder.name}". ${cloudStatus === "off"
               ? "Saved on this device." : "Cloud sync pending."}`);
@@ -2042,11 +2096,14 @@ function BindersView({
         <div className="binder-layout">
           <aside className="binder-list">
             {binders.map((binder) => {
-              const count = binderCards(binder, cards).length;
+              const report = calculatePortfolioValue(binderCards(binder, cards), valueMode);
               return (
-                <button key={binder.id} className={active?.id === binder.id ? "active" : ""} onClick={() => { setActiveId(binder.id); setEditingCards(null); setBinderNotice(""); }}>
+                <button key={binder.id} className={active?.id === binder.id ? "active" : ""} onClick={() => { setActiveId(binder.id); setEditingCards(null); setEditingBinder(false); setBinderNotice(""); }}>
                   <div className="binder-icon">{binder.kind === "smart" ? <Sparkles size={16} /> : <BookOpen size={16} />}</div>
-                  <div><strong>{binder.name}</strong><span>{binder.kind === "smart" ? "Smart binder" : "Manual binder"} · {count} cards</span></div>
+                  <div><strong>{binder.name}</strong>
+                    <span>{binder.kind === "smart" ? "Smart" : "Manual"} · {report.counted} {valueMode === "copies" ? "copies" : "unique"}</span>
+                    <span className="binder-list-value">{formatPortfolioAmounts(report.amounts)}</span>
+                  </div>
                   <ChevronRight size={16} />
                 </button>
               );
@@ -2062,9 +2119,13 @@ function BindersView({
                   <p>{active.description || (active.kind === "smart" ? "Updates automatically when cards match its rule." : "A hand-picked view of your master collection.")}</p>
                 </div>
                 <div className="form-actions">
+                  <button type="button" className="ghost" disabled={!cloudReady}
+                    onClick={() => { setEditingBinder((current) => !current); setEditingCards(null); }}>
+                    <SlidersHorizontal size={15} /> Edit binder
+                  </button>
                   {active.kind === "manual" && (
                     <button type="button" className="ghost" disabled={!cloudReady}
-                      onClick={() => setEditingCards(active.cardIds)}>
+                      onClick={() => { setEditingCards(active.cardIds); setEditingBinder(false); }}>
                       Edit cards
                     </button>
                   )}
@@ -2074,10 +2135,26 @@ function BindersView({
                       onChange(binders.filter((binder) => binder.id !== active.id));
                       setActiveId(null);
                       setEditingCards(null);
+                      setEditingBinder(false);
                       setBinderNotice("Binder removed. Your cards are untouched.");
                     }}><Trash2 size={15} /> Delete binder</button>
                 </div>
               </div>
+
+              <PortfolioValueSummary cards={visibleCards} mode={valueMode}
+                onChange={onValueModeChange} label={"Market value · " + active.name} />
+
+              {editingBinder && cloudReady && (
+                <EditBinder key={active.id} binder={active}
+                  onCancel={() => setEditingBinder(false)}
+                  onSave={(updates) => {
+                    onChange(replaceBinderDetails(binders, active.id, updates));
+                    setEditingBinder(false);
+                    setBinderNotice("Binder updated. " + (cloudStatus === "off"
+                      ? "Saved on this device." : "Cloud sync pending."));
+                  }}
+                />
+              )}
 
               {active.kind === "smart" && (
                 <div className="rules">
@@ -2124,7 +2201,7 @@ function BindersView({
                     <div key={card.id} className="binder-card">
                       <CardArt card={card} compact />
                       <strong>{card.name}</strong>
-                      <span>{card.setName} · #{card.localId}</span>
+                      <span>{card.setName} · #{card.localId} · {card.quantity} copies</span>
                     </div>
                   ))}
                 </div>

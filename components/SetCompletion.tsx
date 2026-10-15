@@ -6,6 +6,8 @@ import type { OwnedCard } from "@/lib/types";
 import { cardImage } from "@/lib/tcgdex";
 import { calculateSetCompletion, csvForMissingCards } from "@/lib/set-completion";
 import { mergeSetsWithOwned } from "@/lib/owned-set-fallbacks";
+import PortfolioValueSummary from "@/components/PortfolioValueSummary";
+import { calculatePortfolioValue, formatPortfolioAmounts, type ValueMode } from "@/lib/portfolio";
 import styles from "./SetCompletion.module.css";
 
 type Filter = "all" | "missing" | "owned" | "duplicates";
@@ -37,9 +39,13 @@ function safeDownload(content: string, filename: string) {
 export default function SetCompletionView({
   ownedCards,
   onScan,
+  valueMode,
+  onValueModeChange,
 }: {
   ownedCards: OwnedCard[];
   onScan: () => void;
+  valueMode: ValueMode;
+  onValueModeChange: (mode: ValueMode) => void;
 }) {
   const [language, setLanguage] = useState<CatalogLanguage>("en");
   const [sets, setSets] = useState<CatalogSet[]>([]);
@@ -88,6 +94,11 @@ export default function SetCompletionView({
     void loadSets();
     return () => controller.abort();
   }, [language]);
+
+  const languageOwned = useMemo(() => ownedCards.filter((card) =>
+    (card.game || "pokemon") === "pokemon" &&
+    (card.language || "English") === getLanguageLabel(language)
+  ), [ownedCards, language]);
 
   const ownedSetCounts = useMemo(() => {
     const map = new Map<string, { ids: Set<string>; copies: number }>();
@@ -169,6 +180,9 @@ export default function SetCompletionView({
   }
 
   const ownedSetTotal = recognizedSets.filter((set) => ownedSetCounts.has(set.id)).length;
+  const selectedSetCards = selectedId ? languageOwned.filter((card) =>
+    card.setId === selectedId
+  ) : [];
   const unindexedSetIds = missingChecklists;
   const ownedOnlyCards = ownedOnlySet
     ? ownedCards.filter((card) => (card.game ?? "pokemon") === "pokemon" &&
@@ -209,6 +223,9 @@ export default function SetCompletionView({
         </div>
       </div>
 
+      <PortfolioValueSummary cards={languageOwned} mode={valueMode}
+        onChange={onValueModeChange} label={getLanguageLabel(language) + " cards · market value"} />
+
       {unindexedSetIds.length > 0 && !loadingSets && (
         <p className={styles.notice}>
           {unindexedSetIds.length} set{unindexedSetIds.length === 1 ? "" : "s"} in
@@ -239,6 +256,9 @@ export default function SetCompletionView({
           <div className={styles.sets}>
             {visibleSets.map((set) => {
               const owned = ownedSetCounts.get(set.id);
+              const report = owned
+                ? calculatePortfolioValue(languageOwned.filter((card) => card.setId === set.id), valueMode)
+                : null;
               return (
                 <button type="button" key={set.id}
                   className={selectedId === set.id ? styles.selectedSet : styles.set}
@@ -248,6 +268,10 @@ export default function SetCompletionView({
                     ? "Collection recognized · source checklist pending"
                     : set.cardCount.total + " indexed cards"}</small>
                   {owned && <span>{owned.ids.size} recorded identities · {owned.copies} copies</span>}
+                  {report && <span className={styles.setValue}>
+                    {formatPortfolioAmounts(report.amounts)}
+                    {report.unpriced ? " · " + report.unpriced + " unpriced" : ""}
+                  </span>}
                 </button>
               );
             })}
@@ -255,6 +279,15 @@ export default function SetCompletionView({
         </aside>
 
         <div className={styles.content}>
+          {selectedId && <div className={styles.setValuation}>
+            <strong>{formatPortfolioAmounts(calculatePortfolioValue(selectedSetCards, valueMode).amounts)}</strong>
+            <span>{calculatePortfolioValue(selectedSetCards, valueMode).counted} {valueMode === "copies" ? "physical copies" : "unique printings"}
+              {" · "}market value of recorded cards in this set
+              {calculatePortfolioValue(selectedSetCards, valueMode).unpriced
+                ? " · " + calculatePortfolioValue(selectedSetCards, valueMode).unpriced + " unpriced"
+                : ""}
+            </span>
+          </div>}
           {loadingSet && <p className={styles.muted} role="status">Comparing your cards with this set…</p>}
           {detailError && <p className={styles.notice} role="status">
             Source checklist unavailable: {detailError} Your owned records are shown below,
