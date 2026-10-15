@@ -18,6 +18,7 @@ jobs:
       - run: npm install
       - run: npm run test:collection
       - run: npm run test:catalogue
+      - run: npm run test:japanese
       - run: node --check scripts/import-pokemon-catalogue-db.mjs
       - run: node --check scripts/import-pokemon-catalogue.mjs
       - run: npm run build

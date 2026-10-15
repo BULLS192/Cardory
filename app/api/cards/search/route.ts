@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { tcgdexBase } from "@/lib/tcgdex";
+import { searchJapaneseCards } from "@/lib/japanese-card-search";
 import { searchRecentTcgCsv } from "@/lib/tcgcsv";
 import { searchRiftbound } from "@/lib/riftbound";
 import { CardLanguage } from "@/lib/types";
@@ -31,16 +32,31 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const name = searchParams.get("name")?.trim() || undefined;
   const number = searchParams.get("number")?.trim() || undefined;
+  const setCode = searchParams.get("set")?.trim() || undefined;
   const game = searchParams.get("game") === "riftbound" ? "riftbound" : "pokemon";
   const language = languageFromQuery(searchParams.get("language"));
 
-  if (!name && !number) {
+  if (!name && !number && !setCode) {
     return NextResponse.json({ results: [] });
   }
 
   if (game === "riftbound") {
     const results = await searchRiftbound(name, number, language);
     return NextResponse.json({ results });
+  }
+
+  // Printed Japanese set codes disambiguate otherwise identical collector numbers.
+  // Keep OCR unchanged: this also works when the user types the number manually.
+  if (language === "Japanese" && (number || setCode)) {
+    try {
+      const matches = await searchJapaneseCards(name, number, setCode);
+      return NextResponse.json(matches);
+    } catch {
+      return NextResponse.json(
+        { error: "Japanese card catalogue is temporarily unavailable. Please retry." },
+        { status: 502 }
+      );
+    }
   }
 
   const params = new URLSearchParams();
