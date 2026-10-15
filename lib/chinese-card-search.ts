@@ -147,3 +147,32 @@ export async function searchChineseCards(
       : "";
   return { results, count: matched.length, notice };
 }
+
+/** Creates a clearly user-supplied, unverified identity for a real printing
+ * absent from the external catalogue. Never fabricates artwork or a price. */
+export function makeUnlistedChineseIdentity(
+  language: ChinesePrintLanguage, printedNumber: string, printedCode: string,
+  name: string, setName?: string
+) {
+  const parsed = parseChineseNumber(printedNumber, printedCode);
+  if (!parsed.setCode || !parsed.collectorNumber) {
+    throw new Error("Enter the actual printed Chinese set code and collector number.");
+  }
+  if (!name.trim()) throw new Error("Enter the printed Chinese card name.");
+  if (name.trim().length > 120 || (setName ?? "").length > 120)
+    throw new Error("Card or set name is too long.");
+  const prefix = language === "Chinese Simplified" ? "zh-cn" : "zh-tw";
+  const key = parsed.setCode.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+  const setId = `cardory-custom-${prefix}-${key}`;
+  return {
+    id: `${setId}-${parsed.collectorNumber.toLowerCase()}`,
+    localId: parsed.collectorNumber,
+    name: name.trim(),
+    image: null,
+    rarity: null,
+    set: { id: setId, name: setName?.trim() || parsed.setCode },
+    variants: { normal: true, foil: false, holo: false, reverse: false, firstEdition: false },
+    marketCurrency: null,
+    category: "Unverified manual entry",
+  };
+}
