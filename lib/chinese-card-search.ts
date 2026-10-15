@@ -144,7 +144,11 @@ export async function searchChineseCards(
     ? `No verified ${language === "Chinese" ? "Traditional" : "Simplified"} Chinese printing was found. You can record the real printed set code and number using "Add unlisted Chinese card".`
     : matched.length > 1 && !parsed.setCode
       ? `${matched.length} matches share this number. Enter the printed set code to choose the correct Chinese printing.`
-      : "";
+      : language === "Chinese Simplified"
+        ? "Confirm the printed set code and artwork: this source can contain Simplified Chinese translations of international printings, not an actual China-market release."
+        : !parsed.setCode
+          ? "Confirm the printed set code: a collector number alone is not unique."
+          : "";
   return { results, count: matched.length, notice };
 }
 
