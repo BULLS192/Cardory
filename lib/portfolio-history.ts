@@ -65,7 +65,7 @@ export function buildPortfolioHistory(
     let priced = 0;
     for (const group of valued.values()) {
       if (mode === "unique") {
-        const entry = [...group].sort((a, b) => b.quote.observed_at.localeCompare(a.quote.observed_at))[0];
+        const entry = [...group].sort((a, b) => b.quote.observed_at.localeCompare(a.quote.observed_at) || Number(b.quote.market_price) - Number(a.quote.market_price))[0];
         const unit = entry.quote.currency.toUpperCase();
         amounts[unit] = (amounts[unit] || 0) + Number(entry.quote.market_price);
         priced++;
