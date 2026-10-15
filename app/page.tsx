@@ -2029,6 +2029,8 @@ function BindersView({
   cloudError,
   cloudReady,
   onRetrySync,
+  valueMode,
+  onValueModeChange,
 }: {
   cards: OwnedCard[];
   binders: Binder[];
@@ -2037,10 +2039,13 @@ function BindersView({
   cloudError: string;
   cloudReady: boolean;
   onRetrySync: () => void;
+  valueMode: ValueMode;
+  onValueModeChange: (mode: ValueMode) => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(binders[0]?.id ?? null);
   const [editingCards, setEditingCards] = useState<string[] | null>(null);
+  const [editingBinder, setEditingBinder] = useState(false);
   const [binderNotice, setBinderNotice] = useState("");
   const active = binders.find((binder) => binder.id === activeId) ?? binders[0] ?? null;
   const visibleCards = active ? binderCards(active, cards) : [];
@@ -2075,6 +2080,7 @@ function BindersView({
             onChange([binder, ...binders]);
             setActiveId(binder.id);
             setEditingCards(null);
+            setEditingBinder(false);
             setShowCreate(false);
             setBinderNotice(`Created "${binder.name}". ${cloudStatus === "off"
               ? "Saved on this device." : "Cloud sync pending."}`);
@@ -2093,11 +2099,14 @@ function BindersView({
         <div className="binder-layout">
           <aside className="binder-list">
             {binders.map((binder) => {
-              const count = binderCards(binder, cards).length;
+              const report = calculatePortfolioValue(binderCards(binder, cards), valueMode);
               return (
-                <button key={binder.id} className={active?.id === binder.id ? "active" : ""} onClick={() => { setActiveId(binder.id); setEditingCards(null); setBinderNotice(""); }}>
+                <button key={binder.id} className={active?.id === binder.id ? "active" : ""} onClick={() => { setActiveId(binder.id); setEditingCards(null); setEditingBinder(false); setBinderNotice(""); }}>
                   <div className="binder-icon">{binder.kind === "smart" ? <Sparkles size={16} /> : <BookOpen size={16} />}</div>
-                  <div><strong>{binder.name}</strong><span>{binder.kind === "smart" ? "Smart binder" : "Manual binder"} · {count} cards</span></div>
+                  <div><strong>{binder.name}</strong>
+                    <span>{binder.kind === "smart" ? "Smart" : "Manual"} · {report.counted} {valueMode === "copies" ? "copies" : "unique"}</span>
+                    <span className="binder-list-value">{formatPortfolioAmounts(report.amounts)}</span>
+                  </div>
                   <ChevronRight size={16} />
                 </button>
               );
@@ -2113,22 +2122,42 @@ function BindersView({
                   <p>{active.description || (active.kind === "smart" ? "Updates automatically when cards match its rule." : "A hand-picked view of your master collection.")}</p>
                 </div>
                 <div className="form-actions">
+                  <button type="button" className="ghost" disabled={!cloudReady}
+                    onClick={() => { setEditingBinder((current) => !current); setEditingCards(null); }}>
+                    <SlidersHorizontal size={15} /> Edit binder
+                  </button>
                   {active.kind === "manual" && (
                     <button type="button" className="ghost" disabled={!cloudReady}
-                      onClick={() => setEditingCards(active.cardIds)}>
+                      onClick={() => { setEditingCards(active.cardIds); setEditingBinder(false); }}>
                       Edit cards
                     </button>
                   )}
-                  <button type="button" className="danger-link" disabled={!cloudReady}
+                  <button type="button" className="danger-link" disabled={!cloudReady
                     onClick={() => {
                       if (!window.confirm(`Delete binder "${active.name}"? Your cards will not be deleted.`)) return;
                       onChange(binders.filter((binder) => binder.id !== active.id));
                       setActiveId(null);
                       setEditingCards(null);
+                      setEditingBinder(false);
                       setBinderNotice("Binder removed. Your cards are untouched.");
                     }}><Trash2 size={15} /> Delete binder</button>
                 </div>
               </div>
+
+              <PortfolioValueSummary cards={visibleCards} mode={valueMode}
+                onChange={onValueModeChange} label={"Market value · " + active.name} />
+
+              {editingBinder && cloudReady && (
+                <EditBinder key={active.id} binder={active}
+                  onCancel={() => setEditingBinder(false)}
+                  onSave={(updates) => {
+                    onChange(replaceBinderDetails(binders, active.id, updates));
+                    setEditingBinder(false);
+                    setBinderNotice("Binder updated. " + (cloudStatus === "off"
+                      ? "Saved on this device." : "Cloud sync pending."));
+                  }}
+                />
+              )}
 
               {active.kind === "smart" && (
                 <div className="rules">
@@ -2175,7 +2204,7 @@ function BindersView({
                     <div key={card.id} className="binder-card">
                       <CardArt card={card} compact />
                       <strong>{card.name}</strong>
-                      <span>{card.setName} · #{card.localId}</span>
+                      <span>{card.setName} · #{card.localId} · {card.quantity} copies</span>
                     </div>
                   ))}
                 </div>
