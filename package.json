@@ -14,7 +14,9 @@
     "test:japanese": "node --test tests/japanese-card-lookup.test.mjs",
     "test:chinese": "node --test tests/chinese-card-lookup.test.mjs",
     "test:portfolio": "node --test tests/portfolio-valuation.test.mjs",
-    "test:history": "node --test tests/portfolio-history.test.mjs"
+    "test:history": "node --test tests/portfolio-history.test.mjs",
+    "test:history-coverage": "node --test tests/history-coverage.test.mjs",
+    "history:import": "node scripts/import-history-csv.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
