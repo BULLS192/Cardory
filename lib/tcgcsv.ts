@@ -258,7 +258,8 @@ function buildTcgCsvCard(
     }
   }
 
-  const hpValue = Number(field(product, "HP"));
+  const hpField = field(product, "HP");
+  const hpValue = hpField == null || hpField.trim() === "" ? NaN : Number(hpField);
   const cardType = field(product, "Card Type");
 
   return {
