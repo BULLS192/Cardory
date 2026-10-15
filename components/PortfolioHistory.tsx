@@ -8,6 +8,7 @@ import { buildPortfolioHistory, rangeHistory, availableHistoryCurrencies,
   type HistoryRange, type PriceObservation } from "@/lib/portfolio-history";
 import { ValueModeSwitch } from "@/components/PortfolioValueSummary";
 import SetMarketBenchmarks from "@/components/SetMarketBenchmarks";
+import HistoryCoverageTable from "@/components/HistoryCoverageTable";
 import type { HistoryBasis } from "@/lib/portfolio-history";
 
 export type HistoricalScope = {
@@ -44,7 +45,10 @@ function PriceHistoryChart({ values, currency }: {
   const x = (t: number) => L + (maxT > minT ? ((t - minT) / (maxT - minT)) * (W - L - R) : (W - L - R) / 2);
   const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
   const points = dated.map(row => [x(row.time), y(row.amount)] as const);
-  const path = points.map((point,i) => (i === 0 ? "M" : "L") + point[0].toFixed(2) + " " + point[1].toFixed(2)).join(" ");
+  const segments = points.slice(1).map((end, i) => ({
+    d: `M ${points[i][0].toFixed(2)} ${points[i][1].toFixed(2)} L ${end[0].toFixed(2)} ${end[1].toFixed(2)}`,
+    gap: dated[i+1].time - dated[i].time > 3 * 86400000,
+  }));
   const grid = [0,1,2,3,4].map(i => hi - i * (hi - lo) / 4);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="history-chart"
@@ -57,8 +61,12 @@ function PriceHistoryChart({ values, currency }: {
           </text>
         </g>
       ))}
-      {points.length > 1 && <path d={path} fill="none" stroke="#3678b7"
-        strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />}
+      {segments.map((segment, i) => (
+        <path key={i} d={segment.d} fill="none" stroke="#3678b7"
+          strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+          strokeDasharray={segment.gap ? "5 7" : undefined}
+          opacity={segment.gap ? 0.58 : 1} />
+      ))}
       {points.map(([px,py],i) => (
         <circle key={i} cx={px} cy={py} r={points.length === 1 || i === points.length-1 ? 4.5 : 2}
           fill="#3678b7">
@@ -241,11 +249,19 @@ export default function PortfolioHistory({
                 {historyBasis === "market"
                   ? " This is a retrospective price check of today's selected cards, even before you bought them; it is NOT your past portfolio value or profit."
                   : " This follows currently held cards from their recorded purchase dates. Purchases and additions affect the total, so changes in value are NOT investment profit."}
-                Unchanged lines carry forward the last known quote; pricing gaps are disclosed.
+                Dashed connectors indicate missing observation dates (not daily estimates).
+                Unchanged solid sections carry forward the last known quote; pricing gaps are disclosed.
               </p>
             </article>
           )}
           <SetMarketBenchmarks cards={scope.cards} />
+          <HistoryCoverageTable cards={cards} observations={readings}
+            onSelect={(recordId) => {
+              setScopeId("card:" + recordId);
+              setHistoryBasis("market");
+              setRange("ALL");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }} />
         </>
       )}
     </section>

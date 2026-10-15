@@ -26,7 +26,7 @@ async function json(url: string): Promise<unknown> {
 function pickQuote(data: unknown, card: Owned): Quote | null {
   if (!data || typeof data !== "object") return null;
   const item = data as Record<string, unknown>;
-  const groupId = card.provider_card_id.match(/^tcgcsv-(\d+)-(\d+)$/);
+  const groupId = card.provider_card_id.match(/^(tcgcsv|riftcsv)-(\d+)-(\d+)$/);
   if (groupId) {
     const result = (item.results as Record<string, unknown>[] | undefined) ?? [];
     const variantNames: Record<string, string[]> = {
@@ -37,7 +37,7 @@ function pickQuote(data: unknown, card: Owned): Quote | null {
     };
     const names = variantNames[card.variant] ?? [card.variant];
     const priceRow = result.find(r =>
-      String(r.productId) === groupId[2] &&
+      String(r.productId) === groupId[3] &&
       names.includes(String(r.subTypeName || "").toLowerCase()));
     if (!priceRow) return null;
     const price = priceRow.marketPrice ?? priceRow.midPrice ?? priceRow.lowPrice;
@@ -83,8 +83,13 @@ function pickQuote(data: unknown, card: Owned): Quote | null {
   return null;
 }
 async function quote(card: Owned): Promise<Quote | null> {
-  const csv = card.provider_card_id.match(/^tcgcsv-(\d+)-(\d+)$/);
-  if (csv) return pickQuote(await json(`https://tcgcsv.com/tcgplayer/3/${csv[1]}/prices`), card);
+  const csv = card.provider_card_id.match(/^(tcgcsv|riftcsv)-(\d+)-(\d+)$/);
+  if (csv) {
+    if ((csv[1] === "riftcsv" && card.game !== "riftbound") ||
+        (csv[1] === "tcgcsv" && card.game !== "pokemon")) return null;
+    const category = csv[1] === "riftcsv" ? 89 : 3;
+    return pickQuote(await json(`https://tcgcsv.com/tcgplayer/${category}/${csv[2]}/prices`), card);
+  }
   if (card.game !== "pokemon" || !/^[A-Za-z0-9._-]{1,128}$/.test(card.provider_card_id) ||
       card.provider_card_id.startsWith("cardory-custom-")) return null;
   const url = `https://api.tcgdex.net/v2/${locale(card.language)}/cards/${encodeURIComponent(card.provider_card_id)}`;
