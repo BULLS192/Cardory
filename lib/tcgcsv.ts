@@ -251,7 +251,7 @@ function buildTcgCsvCard(
 
   // Some very new products can exist before a subtype price row is complete.
   if (!hasNormal && !hasHolo && !hasReverse) {
-    if (/classic collection|double rare|ultra rare|illustration|secret|rare/i.test(rarity ?? "")) {
+    if (/classic collection|futuristic rare|double rare|ultra rare|illustration|secret|rare/i.test(rarity ?? "")) {
       hasHolo = true;
     } else {
       hasNormal = true;
@@ -267,7 +267,8 @@ function buildTcgCsvCard(
     name: product.name,
     image: product.imageUrl ?? null,
     rarity,
-    category: "Pokemon",
+    category: /energy/i.test(cardType ?? "") || /basic .* energy/i.test(product.name)
+      ? "Energy" : /trainer/i.test(cardType ?? "") ? "Trainer" : "Pokemon",
     hp: Number.isFinite(hpValue) ? hpValue : null,
     types: cardType && !/energy|trainer/i.test(cardType) ? [cardType] : [],
     variants: {
