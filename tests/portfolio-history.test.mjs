@@ -83,3 +83,41 @@ test("historical range selection and currencies are deterministic",()=>{
   assert.equal(rangeHistory(a,"1M").length,12);
   assert.deepEqual(availableHistoryCurrencies(a),["JPY","USD"]);
 });
+
+const { HISTORICAL_SET_BENCHMARKS, lookupSetBenchmark } =
+  moduleFromTs("../lib/set-market-benchmarks.ts");
+
+test("release market basis can show a real price before acquisition, never as owned P/L", () => {
+  const cards = [card("early","holofoil","2026-10-01",1)];
+  const quotes = [
+    observation("early","2026-09-16",5.95),
+    observation("early","2026-10-15",1.58),
+  ];
+  const purchased = buildPortfolioHistory(cards,quotes,"copies","owned");
+  assert.equal(purchased.length,1);
+  assert.equal(purchased[0].date,"2026-10-15");
+  assert.equal(purchased[0].amounts.USD,1.58);
+  const market = buildPortfolioHistory(cards,quotes,"copies","market");
+  assert.deepEqual(market.map(p=>p.date),["2026-09-16","2026-10-15"]);
+  assert.equal(market[0].amounts.USD,5.95);
+  assert.equal(market[1].amounts.USD,1.58);
+});
+
+test("set indexes are separate, cited historical index points, never USD values", () => {
+  const main=lookupSetBenchmark("tcgplayer-24722");
+  const classic=lookupSetBenchmark("tcgplayer-24837");
+  assert.equal(HISTORICAL_SET_BENCHMARKS.length,2);
+  for (const item of [main,classic]) {
+    assert.equal(item.releaseDate,"2026-09-16");
+    assert.equal(item.points[0].date,"2026-09-16");
+    assert.equal(item.points[0].level,1000);
+    assert.equal(item.points.at(-1).date,"2026-10-14");
+    assert.equal(item.license,"CC BY 4.0");
+    assert.match(item.sourceUrl,/^https:\/\/doubleholo.com/);
+  }
+  assert.equal(main.points.length,29);
+  assert.equal(classic.points.length,28);
+  assert.equal(main.points.at(-1).level,981.02);
+  assert.equal(classic.points.at(-1).level,634.63);
+  assert.equal(lookupSetBenchmark("other"),null);
+});

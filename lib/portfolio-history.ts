@@ -17,6 +17,7 @@ export type HistoryPoint = {
   copies: number;
 };
 export type HistoryRange = "1M" | "3M" | "1Y" | "ALL";
+export type HistoryBasis = "owned" | "market";
 
 const day = (value: string) => value.slice(0, 10);
 const cardQty = (card: OwnedCard) => Math.max(0, Math.trunc(Number(card.quantity) || 0));
@@ -25,10 +26,13 @@ const validUnit = (unit: string) => /^[A-Z]{3}$/.test(unit) ? unit : null;
 
 /** Real observation dates only: no synthetic backfill to release or purchase.
  * Forward carry is an explicitly disclosed last-known quote, not an observed
- * price for that date. Holdings start on their recorded acquisition date.
+ * price for that date. Actual holdings start on their recorded acquisition date.
+ * Market basis is a hypothetical current basket priced at the source date,
+ * with no assumption that the user owned the cards at that time.
  * Current holdings only: no reconstruction of previously sold/deleted cards. */
 export function buildPortfolioHistory(
-  cards: OwnedCard[], readings: PriceObservation[], mode: ValueMode
+  cards: OwnedCard[], readings: PriceObservation[], mode: ValueMode,
+  basis: HistoryBasis = "owned"
 ): HistoryPoint[] {
   const byId = new Map(cards.map(card => [card.id, card]));
   const observations = readings.filter(item =>
@@ -48,8 +52,10 @@ export function buildPortfolioHistory(
       position++;
     }
     const eligible = cards.filter(card =>
-      cardQty(card) > 0 && day(card.acquisition?.date || card.addedAt || date) <= date
+      cardQty(card) > 0 &&
+      (basis === "market" || day(card.acquisition?.date || card.addedAt || date) <= date)
     );
+    if (!eligible.length) continue;
     const valued = new Map<string, { card: OwnedCard; quote: PriceObservation }[]>();
     let copies = 0;
     for (const card of eligible) {

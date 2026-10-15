@@ -7,6 +7,8 @@ import { formatPortfolioAmounts, groupOwnedSets, type ValueMode } from "@/lib/po
 import { buildPortfolioHistory, rangeHistory, availableHistoryCurrencies,
   type HistoryRange, type PriceObservation } from "@/lib/portfolio-history";
 import { ValueModeSwitch } from "@/components/PortfolioValueSummary";
+import SetMarketBenchmarks from "@/components/SetMarketBenchmarks";
+import type { HistoryBasis } from "@/lib/portfolio-history";
 
 export type HistoricalScope = {
   id: string;
@@ -85,6 +87,7 @@ export default function PortfolioHistory({
   const [error, setError] = useState("");
   const [truncated, setTruncated] = useState(false);
   const [scopeId, setScopeId] = useState("all");
+  const [historyBasis, setHistoryBasis] = useState<HistoryBasis>("owned");
   const [range, setRange] = useState<HistoryRange>("ALL");
   const [unit, setUnit] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -147,9 +150,16 @@ export default function PortfolioHistory({
     ];
   }, [cards,binders]);
   const scope = options.find(option => option.id===scopeId) || options[0];
-  const history = useMemo(() => buildPortfolioHistory(scope.cards, readings, valueMode),
-    [scope.cards, readings, valueMode]);
-  const shown = rangeHistory(history, range);
+  const history = useMemo(() => buildPortfolioHistory(
+    scope.cards, readings, valueMode, historyBasis),
+    [scope.cards, readings, valueMode, historyBasis]);
+  const withinRange = rangeHistory(history, range);
+  // An incomplete historical basket is not a meaningful total portfolio
+  // valuation. Permit sparse data for the individual card scope only.
+  const shown = scope.id.startsWith("card:")
+    ? withinRange.filter(p => p.priced > 0)
+    : withinRange.filter(p => p.copies > 0 && p.priced / p.copies >= 0.95);
+  const incompleteDays = withinRange.length - shown.length;
   const currencies = availableHistoryCurrencies(shown);
   const currentUnit = currencies.includes(unit) ? unit : currencies[0] || "";
   const plot = shown.filter(p => currentUnit in p.amounts)
@@ -176,7 +186,10 @@ export default function PortfolioHistory({
           <div className="panel history-controls">
             <label><span>View holdings</span>
               <select aria-label="History holdings" value={scope.id}
-                onChange={event=>setScopeId(event.target.value)}>
+                onChange={event=>{
+                  setScopeId(event.target.value);
+                  setHistoryBasis(event.target.value.startsWith("card:") ? "market" : "owned");
+                }}>
                 {options.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}
               </select>
             </label>
@@ -184,6 +197,13 @@ export default function PortfolioHistory({
               <select aria-label="Historical quote currency" value={currentUnit}
                 onChange={event=>setUnit(event.target.value)} disabled={!currencies.length}>
                 {currencies.map(value=><option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+            <label><span>History basis</span>
+              <select aria-label="Historical valuation basis" value={historyBasis}
+                onChange={e=>setHistoryBasis(e.target.value as HistoryBasis)}>
+                <option value="owned">Since purchase · actual holdings</option>
+                <option value="market">Since release · selected cards (market-only)</option>
               </select>
             </label>
             <ValueModeSwitch mode={valueMode} onChange={onValueModeChange} />
@@ -198,7 +218,8 @@ export default function PortfolioHistory({
           {error && <p className="form-error" role="alert">{error}</p>}
           {!loading && !error && (
             <article className="panel history-plot-panel">
-              <span className="eyebrow">Recorded market value</span>
+              <span className="eyebrow">{historyBasis === "market"
+                ? "MARKET-ONLY · HYPOTHETICAL CURRENT BASKET" : "ACTUAL HOLDINGS · SINCE PURCHASE"}</span>
               <div className="history-headline">
                 <strong>{latest && currentUnit in latest.amounts
                   ? money(latest.amounts[currentUnit],currentUnit) : "—"}</strong>
@@ -210,17 +231,21 @@ export default function PortfolioHistory({
               <PriceHistoryChart values={plot} currency={currentUnit} />
               <p className="portfolio-footnote">
                 {readings.length.toLocaleString()} actual recorded card-price observations.
+                {incompleteDays ? ` ${incompleteDays} dates excluded because fewer than 95% of selected positions had historical prices.` : ""}
                 {latest ? ` Latest: ${dateLabel(latest.date)} · ${latest.priced} priced · ${latest.unpriced} unpriced positions.` : ""}
                 {truncated ? " Older records exceed the current 50,000-row display limit." : ""}
               </p>
               <p className="portfolio-footnote">
                 {firstAcquisition ? `Earliest purchase or addition in this view: ${dateLabel(firstAcquisition)}. ` : ""}
-                Historical values begin only when verified price readings exist, not on the card&apos;s release date.
-                Unchanged lines carry forward the last known quote. Changing holdings and new purchases affect
-                portfolio value, so chart change is not investment profit.
+                Historical values begin only on dates with actual card-price evidence.
+                {historyBasis === "market"
+                  ? " This is a retrospective price check of today's selected cards, even before you bought them; it is NOT your past portfolio value or profit."
+                  : " This follows currently held cards from their recorded purchase dates. Purchases and additions affect the total, so changes in value are NOT investment profit."}
+                Unchanged lines carry forward the last known quote; pricing gaps are disclosed.
               </p>
             </article>
           )}
+          <SetMarketBenchmarks cards={scope.cards} />
         </>
       )}
     </section>
