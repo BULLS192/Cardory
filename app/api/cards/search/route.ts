@@ -58,12 +58,19 @@ export async function GET(request: NextRequest) {
   const [dexResponse, recentResults] = await Promise.all([
     fetch(`${tcgdexBase(language)}/cards?${params.toString()}`, {
       next: { revalidate: 3600 },
-    }),
-    recentPromise,
+    }).catch(() => null),
+    recentPromise.catch(() => []),
   ]);
 
-  const rawDexResults = dexResponse.ok ? await dexResponse.json() : [];
-  const dexResults = rawDexResults.map((card: Record<string, unknown>) => {
+  const upstream = dexResponse?.ok
+    ? await dexResponse.json().catch(() => [])
+    : [];
+  const rawDexResults: Record<string, unknown>[] = Array.isArray(upstream) ? upstream : [];
+  const dexResults = rawDexResults
+    .filter((card): card is Record<string, unknown> & { id: string; name: string } =>
+      typeof card.id === "string" && typeof card.name === "string"
+    )
+    .map((card) => {
     const cardId = typeof card.id === "string" ? card.id : "";
     const rawSet = card.set as { id?: string; name?: string } | undefined;
     const derivedSetId =
@@ -93,10 +100,10 @@ export async function GET(request: NextRequest) {
     return true;
   });
 
-  if (!dexResponse.ok && !recentResults.length) {
+  if (!dexResponse?.ok && !recentResults.length) {
     return NextResponse.json(
       { error: "Unable to search the Pokémon card catalogue." },
-      { status: dexResponse.status }
+      { status: 502 }
     );
   }
 

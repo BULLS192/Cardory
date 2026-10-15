@@ -6,6 +6,7 @@ import {
   validCatalogueId,
 } from "@/lib/catalogue";
 import { getIndexedSetDetail } from "@/lib/catalogue-store";
+import { getSupplementalTcgCsvSet } from "@/lib/tcgcsv";
 
 export async function GET(
   request: NextRequest,
@@ -17,6 +18,17 @@ export async function GET(
   const { id } = await context.params;
   if (!language || !validCatalogueId(id)) {
     return NextResponse.json({ error: "Invalid set or language." }, { status: 400 });
+  }
+
+  if (id.startsWith("tcgplayer-")) {
+    if (language !== "en") {
+      return NextResponse.json({ error: "This source currently supports English only." }, { status: 404 });
+    }
+    const supplemental = await getSupplementalTcgCsvSet(id);
+    if (!supplemental) {
+      return NextResponse.json({ error: "TCGCSV set is unavailable or unknown." }, { status: 404 });
+    }
+    return NextResponse.json({ source: "TCGplayer via TCGCSV", language, set: supplemental });
   }
 
   const indexed = await getIndexedSetDetail(language, id);

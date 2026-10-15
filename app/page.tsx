@@ -40,6 +40,7 @@ import {
 import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "@/lib/tcgdex";
 import CardScanner from "@/components/CardScanner";
 import SetCompletionView from "@/components/SetCompletion";
+import { newBinder, replaceBinderCards, validateBinder } from "@/lib/binder-helpers";
 import CloudAccount, { type CloudStatus } from "@/components/CloudAccount";
 import { getSupabaseBrowserClient } from "@/lib/supabase";
 import {
@@ -832,6 +833,10 @@ export default function Home() {
             cards={state.cards}
             binders={state.binders}
             onChange={(binders) => setState((current) => ({ ...current, binders }))}
+            cloudStatus={cloudStatus}
+            cloudError={cloudError}
+            cloudReady={!session?.user || cloudHydrated}
+            onRetrySync={() => setState((current) => ({ ...current, binders: [...current.binders] }))}
           />
         )}
 
@@ -1854,13 +1859,23 @@ function BindersView({
   cards,
   binders,
   onChange,
+  cloudStatus,
+  cloudError,
+  cloudReady,
+  onRetrySync,
 }: {
   cards: OwnedCard[];
   binders: Binder[];
   onChange: (binders: Binder[]) => void;
+  cloudStatus: CloudStatus;
+  cloudError: string;
+  cloudReady: boolean;
+  onRetrySync: () => void;
 }) {
   const [showCreate, setShowCreate] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(binders[0]?.id ?? null);
+  const [editingCards, setEditingCards] = useState<string[] | null>(null);
+  const [binderNotice, setBinderNotice] = useState("");
   const active = binders.find((binder) => binder.id === activeId) ?? binders[0] ?? null;
   const visibleCards = active ? binderCards(active, cards) : [];
 
@@ -1870,17 +1885,33 @@ function BindersView({
         eyebrow="Flexible organization"
         title="Binders"
         description="Manual binders contain cards you choose. Smart binders rebuild themselves automatically from rules."
-        action={<button className="primary" onClick={() => setShowCreate((v) => !v)}><Plus size={17} /> New binder</button>}
+        action={<button type="button" className="primary" disabled={!cloudReady} onClick={() => setShowCreate((v) => !v)}><Plus size={17} /> New binder</button>}
       />
 
-      {showCreate && (
+      {!cloudReady && (
+        <p className="form-error" role="status">
+          Loading your saved collection. Binder changes are available once sync finishes.
+        </p>
+      )}
+      {cloudStatus === "error" && (
+        <p className="form-error" role="alert">
+          Binder changes may only be stored on this device until cloud sync succeeds.
+          {cloudError ? " " + cloudError : ""}
+          <button type="button" className="ghost" onClick={onRetrySync}>Retry sync</button>
+        </p>
+      )}
+      {binderNotice && <p role="status" className="binder-notice">{binderNotice}</p>}
+      {showCreate && cloudReady && (
         <CreateBinder
           cards={cards}
           onCancel={() => setShowCreate(false)}
           onCreate={(binder) => {
             onChange([binder, ...binders]);
             setActiveId(binder.id);
+            setEditingCards(null);
             setShowCreate(false);
+            setBinderNotice(`Created "${binder.name}". ${cloudStatus === "off"
+              ? "Saved on this device." : "Cloud sync pending."}`);
           }}
         />
       )}
@@ -1890,7 +1921,7 @@ function BindersView({
           <div className="empty-icon"><BookOpen size={22} /></div>
           <h2>No binders yet</h2>
           <p>Create a manual binder or a smart binder driven by a rule such as tag = pikachu or market value &gt; 50.</p>
-          <button className="primary" onClick={() => setShowCreate(true)}><Plus size={17} /> Create binder</button>
+          <button type="button" className="primary" disabled={!cloudReady} onClick={() => setShowCreate(true)}><Plus size={17} /> Create binder</button>
         </div>
       ) : (
         <div className="binder-layout">
@@ -1898,7 +1929,7 @@ function BindersView({
             {binders.map((binder) => {
               const count = binderCards(binder, cards).length;
               return (
-                <button key={binder.id} className={active?.id === binder.id ? "active" : ""} onClick={() => setActiveId(binder.id)}>
+                <button key={binder.id} className={active?.id === binder.id ? "active" : ""} onClick={() => { setActiveId(binder.id); setEditingCards(null); setBinderNotice(""); }}>
                   <div className="binder-icon">{binder.kind === "smart" ? <Sparkles size={16} /> : <BookOpen size={16} />}</div>
                   <div><strong>{binder.name}</strong><span>{binder.kind === "smart" ? "Smart binder" : "Manual binder"} · {count} cards</span></div>
                   <ChevronRight size={16} />
@@ -1915,10 +1946,22 @@ function BindersView({
                   <h2>{active.name}</h2>
                   <p>{active.description || (active.kind === "smart" ? "Updates automatically when cards match its rule." : "A hand-picked view of your master collection.")}</p>
                 </div>
-                <button className="danger-link" onClick={() => {
-                  onChange(binders.filter((binder) => binder.id !== active.id));
-                  setActiveId(null);
-                }}><Trash2 size={15} /> Delete binder</button>
+                <div className="form-actions">
+                  {active.kind === "manual" && (
+                    <button type="button" className="ghost" disabled={!cloudReady}
+                      onClick={() => setEditingCards(active.cardIds)}>
+                      Edit cards
+                    </button>
+                  )}
+                  <button type="button" className="danger-link" disabled={!cloudReady}
+                    onClick={() => {
+                      if (!window.confirm(`Delete binder "${active.name}"? Your cards will not be deleted.`)) return;
+                      onChange(binders.filter((binder) => binder.id !== active.id));
+                      setActiveId(null);
+                      setEditingCards(null);
+                      setBinderNotice("Binder removed. Your cards are untouched.");
+                    }}><Trash2 size={15} /> Delete binder</button>
+                </div>
               </div>
 
               {active.kind === "smart" && (
@@ -1930,8 +1973,36 @@ function BindersView({
                 </div>
               )}
 
+              {active.kind === "manual" && editingCards !== null && (
+                <div className="manual-picker" aria-label="Edit cards in binder">
+                  {!cards.length ? <div className="mini-empty">Add cards to your collection first.</div>
+                    : cards.map((card) => (
+                      <label key={card.id}>
+                        <input type="checkbox" checked={editingCards.includes(card.id)}
+                          onChange={(event) => setEditingCards((previous) =>
+                            event.target.checked
+                              ? [...(previous ?? []), card.id]
+                              : (previous ?? []).filter((entry) => entry !== card.id))} />
+                        <CardArt card={card} compact />
+                        <span><strong>{card.name}</strong>
+                          <small>{card.setName} · #{card.localId}</small></span>
+                      </label>
+                    ))}
+                  <div className="form-actions">
+                    <button type="button" className="ghost"
+                      onClick={() => setEditingCards(null)}>Cancel</button>
+                    <button type="button" className="primary" disabled={!cloudReady}
+                      onClick={() => {
+                        onChange(replaceBinderCards(binders, active.id, editingCards));
+                        setEditingCards(null);
+                        setBinderNotice("Binder cards updated. Cloud sync pending.");
+                      }}>Save binder cards</button>
+                  </div>
+                </div>
+              )}
               {!visibleCards.length ? (
-                <div className="mini-empty">No cards currently match this binder.</div>
+                <div className="mini-empty">No cards currently match this binder.
+                  {active.kind === "manual" ? " Use Edit cards to add them." : ""}</div>
               ) : (
                 <div className="binder-card-grid">
                   {visibleCards.map((card) => (
@@ -1962,11 +2033,12 @@ function CreateBinder({
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [kind, setKind] = useState<"manual" | "smart">("smart");
+  const [kind, setKind] = useState<"manual" | "smart">("manual");
   const [selectedCards, setSelectedCards] = useState<string[]>([]);
   const [field, setField] = useState<SmartRuleField>("tag");
   const [operator, setOperator] = useState<SmartRuleOperator>("contains");
   const [value, setValue] = useState("");
+  const [validationError, setValidationError] = useState("");
 
   const numeric = field === "marketPrice";
 
@@ -1980,19 +2052,15 @@ function CreateBinder({
   }, [field, numeric, operator, value]);
 
   function create() {
-    if (!name.trim()) return;
-    const rules: SmartRule[] =
-      kind === "smart" ? [{ field, operator, value: field === "favorite" ? value || "true" : value.trim() }] : [];
-    onCreate({
-      id: id(),
-      name: name.trim(),
-      description: description.trim(),
-      kind,
-      cardIds: kind === "manual" ? selectedCards : [],
-      rules,
-      match: "all",
-      createdAt: new Date().toISOString(),
-    });
+    const input = { name, description, kind, cardIds: selectedCards,
+      field, operator, value: field === "favorite" ? value || "true" : value };
+    const error = validateBinder(input);
+    if (error) {
+      setValidationError(error);
+      return;
+    }
+    setValidationError("");
+    onCreate(newBinder(input, id(), new Date().toISOString()));
   }
 
   return (
@@ -2039,7 +2107,8 @@ function CreateBinder({
         </div>
       )}
 
-      <div className="form-actions"><button className="ghost" onClick={onCancel}>Cancel</button><button className="primary" onClick={create}><Check size={17} /> Create binder</button></div>
+      {validationError && <p role="alert" className="form-error">{validationError}</p>}
+      <div className="form-actions"><button type="button" className="ghost" onClick={onCancel}>Cancel</button><button type="button" className="primary" onClick={create}><Check size={17} /> Create binder</button></div>
     </article>
   );
 }
