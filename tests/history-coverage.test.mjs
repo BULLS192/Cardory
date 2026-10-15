@@ -17,7 +17,7 @@ function moduleFromTs(path, imports={}) {
   return exports;
 }
 const portfolio=moduleFromTs("../lib/portfolio.ts");
-const { buildCardHistoryCoverage, summarizeHistoryCoverage } =
+const { buildCardHistoryCoverage, summarizeHistoryCoverage, isHistoricalEstimate } =
   moduleFromTs("../lib/history-coverage.ts",{"./portfolio":portfolio});
 const BASE={
   tcgdexId:"tcgcsv-24722-100",game:"pokemon",language:"English",variant:"holofoil",
@@ -84,4 +84,29 @@ test("verified Bill's Archive SQL imports 58 exact set numbers on two real dates
   assert.match(sql,/set_id='tcgplayer-24722'/);
   assert.match(sql,/2026-09-16T18:23:00Z/);
   assert.match(sql,/2026-10-13T12:00:00Z/);
+});
+
+test("estimated provider history is clearly separated from reported market quotes",()=>{
+  const cards=[{...BASE,id:"estimated",tcgdexId:"tcgcsv-24722-201"},{
+    ...BASE,id:"reported",tcgdexId:"tcgcsv-24722-202",localId:"027/128"
+  }];
+  const model={
+    ...observed("estimated","2026-09-16",0.28),
+    source:"historical:ESTIMATE:KnowMyCards:PokemonPriceTracker:https://knowmycards.com/cards/english/123/slug/"
+  };
+  const verified={
+    ...observed("reported","2026-09-16",2.8),
+    source:"historical:TCGplayer-via-BillsArchive:https://billsarchive.com/articles/pricing"
+  };
+  const baseline=observed("estimated","2026-10-15",0.18);
+  const rows=buildCardHistoryCoverage(cards,[model,verified,baseline]);
+  const summary=summarizeHistoryCoverage(rows);
+  assert.equal(summary.withOlderHistory,2);
+  assert.equal(summary.withOlderReportedQuote,1);
+  assert.equal(summary.withOnlyEstimatedOlder,1);
+  assert.equal(isHistoricalEstimate(model.source),true);
+  assert.equal(isHistoricalEstimate("historical:USER_CSV_UNVERIFIED:https://example.org"),true);
+  assert.equal(isHistoricalEstimate(verified.source),false);
+  assert.equal(rows.find(row=>row.recordId==="estimated").firstIsEstimate,true);
+  assert.equal(rows.find(row=>row.recordId==="reported").firstIsEstimate,false);
 });
