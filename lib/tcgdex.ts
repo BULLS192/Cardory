@@ -5,6 +5,7 @@ export const TCGDEX_ROOT = "https://api.tcgdex.net/v2";
 export function tcgdexLanguageCode(language?: CardLanguage) {
   if (language === "Japanese") return "ja";
   if (language === "Chinese") return "zh-tw";
+  if (language === "Chinese Simplified") return "zh-cn";
   return "en";
 }
 
