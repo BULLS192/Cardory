@@ -68,8 +68,17 @@ function pickQuote(data: unknown, card: Owned): Quote | null {
       .map(v => (v.pricing as Record<string, unknown> | undefined)?.cardmarket),
   ].filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
   for (const market of markets) {
-    const price = market.trend ?? market.avg1 ?? market.avg7 ?? market.avg ?? market.low;
-    if (present(price)) return { price, currency: "EUR", source: "Cardmarket via TCGdex" };
+    const foil = ["foil", "holofoil", "reverse-holofoil", "1st-edition-holofoil", "unlimited-holofoil"]
+      .includes(card.variant);
+    const normal = ["normal", "unlimited", "1st-edition"].includes(card.variant);
+    // Cardmarket's trend/avg are standard-finish prices; holo prices have
+    // their own fields. Never substitute standard prices for a foil printing.
+    const price = foil
+      ? market["trend-holo"] ?? market["avg-holo"] ?? market["low-holo"]
+      : normal ? market.trend ?? market.avg1 ?? market.avg7 ?? market.avg ?? market.low : null;
+    if (present(price)) return { price,
+      currency: typeof market.unit === "string" && /^[A-Z]{3}$/.test(market.unit) ? market.unit : "EUR",
+      source: "Cardmarket via TCGdex" };
   }
   return null;
 }
