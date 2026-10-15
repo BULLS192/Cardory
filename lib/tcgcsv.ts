@@ -89,6 +89,7 @@ async function json<T>(url: string, revalidate = 86400): Promise<T | null> {
     const response = await fetch(url, {
       headers: { "User-Agent": USER_AGENT },
       next: { revalidate },
+      signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) return null;
     return (await response.json()) as T;
