@@ -1,9 +1,13 @@
 import { CardSearchResult, CardVariant, TcgDexCard, TcgPlayerPricing } from "./types";
+import type { CatalogCard, CatalogSet, CatalogSetDetail } from "./catalogue";
 
 const TCGCSV_BASE = "https://tcgcsv.com/tcgplayer/3";
 const USER_AGENT = "Cardory/0.3";
 
 const RECENT_GROUPS = [
+  // Anniversary energy cards are numbered MEE 009–016, NOT part of the
+  // 30th Celebration expansion checklist. Keep their TCGplayer identity.
+  { groupId: 24461, name: "Mega Evolution Energies", aliases: ["MEE: Mega Evolution Energies", "Mega Evolution Energies"] },
   { groupId: 24722, name: "30th Celebration", aliases: ["30th Celebration"] },
   {
     groupId: 24837,
@@ -146,6 +150,59 @@ export async function searchRecentTcgCsv(
   }
 
   return results;
+}
+
+/**
+ * Source-specific Pokémon set checklists that TCGdex might not include.
+ * Read from the actual TCGCSV group product listing rather than fabricating
+ * card IDs or treating a market price listing as a Pokémon expansion card.
+ */
+function numberedProducts(products: TcgCsvProduct[]) {
+  return products.filter((product) =>
+    Number.isSafeInteger(product.productId) && product.productId > 0 &&
+    typeof product.name === "string" && product.name.trim().length > 0 &&
+    Boolean(field(product, "Number"))
+  );
+}
+
+function supplementalSet(group: (typeof RECENT_GROUPS)[number], count: number): CatalogSet {
+  return {
+    id: `tcgplayer-${group.groupId}`,
+    name: group.name,
+    logo: null,
+    symbol: null,
+    cardCount: { total: count, official: 0 },
+  };
+}
+
+export async function getSupplementalTcgCsvSets(): Promise<CatalogSet[]> {
+  const indexed = await Promise.all(RECENT_GROUPS.map(async (group) => {
+    const products = numberedProducts(await productsForGroup(group.groupId));
+    return products.length ? supplementalSet(group, products.length) : null;
+  }));
+  return indexed.filter((set): set is CatalogSet => set !== null);
+}
+
+export async function getSupplementalTcgCsvSet(
+  id: string
+): Promise<CatalogSetDetail | null> {
+  const group = RECENT_GROUPS.find((entry) => `tcgplayer-${entry.groupId}` === id);
+  if (!group) return null;
+  const products = numberedProducts(await productsForGroup(group.groupId));
+  if (!products.length) return null;
+  const cards: CatalogCard[] = products.map((product) => ({
+    id: `tcgcsv-${group.groupId}-${product.productId}`,
+    localId: field(product, "Number")!,
+    name: product.name,
+    image: product.imageUrl ?? null,
+  }));
+  cards.sort((a, b) => a.localId.localeCompare(b.localId, undefined, { numeric: true }));
+  return {
+    ...supplementalSet(group, cards.length),
+    cards,
+    releaseDate: null,
+    serie: { id: "tcgplayer", name: "TCGplayer via TCGCSV" },
+  };
 }
 
 function variantKey(subTypeName?: string): CardVariant | null {
