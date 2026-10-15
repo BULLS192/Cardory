@@ -314,7 +314,7 @@ export default function SetCompletionView({
           )}
         </div>
       </div>
-      <p className={styles.footnote}>Checklist source: TCGdex. Cards are matched by
+      <p className={styles.footnote}>Checklist sources: TCGdex and selected TCGplayer sets via TCGCSV. Cards are matched by
         exact provider ID and language, not by name. Your owned-card records are
         read directly from Cardory&apos;s existing collection state. Artwork is
         referenced from the provider, not downloaded into Cardory.</p>
