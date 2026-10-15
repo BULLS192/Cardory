@@ -65,3 +65,12 @@
  .sidebar,.content { padding:12px; }
  .cardControls .search { max-width:100%; }
 }
+
+
+.setValue { display: block; color: #234461; font-size: 11px; font-weight: 700; overflow-wrap: anywhere; margin-top: 6px; }
+.setValuation {
+  display: flex; flex-direction: column; gap: 4px; border: 1px solid #dce2ec;
+  background: #f7f9fc; border-radius: 10px; padding: 12px 14px; margin-bottom: 14px;
+}
+.setValuation strong { font-size: clamp(17px, 2.5vw, 23px); overflow-wrap: anywhere; }
+.setValuation span { font-size: 11px; color: #667180; }
