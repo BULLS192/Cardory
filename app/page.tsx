@@ -1003,6 +1003,7 @@ function AddCard({
   const [sessionMarketTotals, setSessionMarketTotals] = useState<Record<string, number>>({});
   const [name, setName] = useState("");
   const [number, setNumber] = useState("");
+  const [japaneseSetCode, setJapaneseSetCode] = useState("");
   const [results, setResults] = useState<CardSearchResult[]>([]);
   const [selected, setSelected] = useState<TcgDexCard | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1110,23 +1111,37 @@ function AddCard({
   }
 
   async function searchCatalogue(searchName: string, searchNumber: string) {
-    if (!searchName.trim() && !searchNumber.trim()) return [] as CardSearchResult[];
+    if (!searchName.trim() && !searchNumber.trim() &&
+        !(game === "pokemon" && language === "Japanese" && japaneseSetCode.trim()))
+      return [] as CardSearchResult[];
     setLoading(true);
     setSelected(null);
+    setScanNotice("");
     try {
       const params = new URLSearchParams();
       if (searchName.trim()) params.set("name", searchName.trim());
       if (searchNumber.trim()) params.set("number", searchNumber.trim());
+      if (game === "pokemon" && language === "Japanese" && japaneseSetCode.trim()) {
+        params.set("set", japaneseSetCode.trim());
+      }
       params.set("game", game);
       params.set("language", language);
       const response = await fetch(`/api/cards/search?${params.toString()}`);
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Card search failed.");
       const found = rankResults(
         (data.results ?? []) as CardSearchResult[],
         searchNumber
       );
       setResults(found);
+      setScanNotice(data.notice || (!found.length
+        ? "No matching cards found. For Japanese cards, include the printed set code."
+        : ""));
       return found;
+    } catch (error) {
+      setResults([]);
+      setScanNotice(error instanceof Error ? error.message : "Card search failed.");
+      return [] as CardSearchResult[];
     } finally {
       setLoading(false);
     }
@@ -1538,9 +1553,25 @@ function AddCard({
                   <option value="Chinese">Chinese</option>
                 </select>
               </label>
-              <label><span>Card name</span><input value={name} onChange={(e) => setName(e.target.value)} placeholder={game === "riftbound" ? "e.g. Jinx" : "e.g. Pikachu"} /></label>
-              <label><span>Card number</span><input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="e.g. 173" /></label>
+              <label><span>Card name</span><input value={name} onChange={(e) => setName(e.target.value)}
+                placeholder={game === "riftbound" ? "e.g. Jinx" :
+                  language === "Japanese" ? "Optional: ピカチュウ" : "e.g. Pikachu"} /></label>
+              <label><span>Card number</span><input value={number} onChange={(e) => setNumber(e.target.value)}
+                placeholder={game === "pokemon" && language === "Japanese" ? "123/190 or SV4a 123/190" : "e.g. 173"} /></label>
+              {game === "pokemon" && language === "Japanese" && (
+                <label><span>Japanese set code (recommended)</span>
+                  <input value={japaneseSetCode} onChange={(e) => setJapaneseSetCode(e.target.value)}
+                    placeholder="e.g. SV4a, SV10, M1S, SV-P" autoCapitalize="characters" />
+                </label>
+              )}
             </div>
+            {game === "pokemon" && language === "Japanese" && (
+              <p className="muted" role="note">
+                Enter the code printed on the Japanese card (such as SV4a) and its number.
+                A number alone can appear in many sets; select the correct artwork and set
+                before adding. Japanese card names are searched in Japanese.
+              </p>
+            )}
             <div className="entry-actions">
               <button
                 className="ghost"
