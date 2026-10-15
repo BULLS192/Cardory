@@ -45,8 +45,8 @@ function formatCount(value: number): string {
 function downloadJson(set: CatalogSetDetail, language: CatalogLanguage) {
   // Metadata and image source URLs only: never embed or mirror card art.
   const data = {
-    provider: "TCGdex",
-    upstream: "https://api.tcgdex.net/v2/" + language + "/sets/" + set.id,
+    provider: set.id.startsWith("tcgplayer-") ? "TCGCSV" : "TCGdex",
+    upstream: set.id.startsWith("tcgplayer-")\n      ? "https://tcgcsv.com/tcgplayer/3/" + set.id.slice("tcgplayer-".length) + "/products"\n      : "https://api.tcgdex.net/v2/" + language + "/sets/" + set.id,
     language,
     exportedAt: new Date().toISOString(),
     set,
@@ -193,7 +193,7 @@ export default function CatalogueExplorer() {
             <h1>Card Catalogue Explorer</h1>
             <p className={styles.subheading}>
               Browse published expansion sets and card artwork by language.
-              Source: TCGdex. Images are served by the original provider, not stored by Cardory.
+              Sources: TCGdex and supplementary TCGplayer metadata via TCGCSV. Artwork stays with the original provider.
             </p>
           </div>
           <div className={styles.controls}>
@@ -354,7 +354,7 @@ export default function CatalogueExplorer() {
                       </div>
                     ))}
                     {activeCard.description && <p className={styles.muted}>{activeCard.description}</p>}
-                    <p className={styles.attribution}>Metadata and artwork reference provided by TCGdex.</p>
+                    <p className={styles.attribution}>Metadata and artwork reference provided by the respective card provider.</p>
                   </div>
                 </div>
               )}
