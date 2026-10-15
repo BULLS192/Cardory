@@ -188,9 +188,14 @@ export async function searchJapaneseCards(
       : [];
   }
 
+  // A valid printed number takes precedence over a romanized/English card name.
+  // The Japanese provider uses Japanese names and must not discard a good ID
+  // because the collector typed "Pikachu" rather than "ピカチュウ".
+  const applyName = Boolean(nameLower) &&
+    (!wanted || /[\u3040-\u30ff\u3400-\u9fff]/u.test(nameLower));
   const matching = briefs.filter((card) =>
     (!wanted || isJapaneseCardNumberMatch(String(card.localId), wanted)) &&
-    (!nameLower || card.name.normalize("NFKC").toLocaleLowerCase("ja").includes(nameLower))
+    (!applyName || card.name.normalize("NFKC").toLocaleLowerCase("ja").includes(nameLower))
   );
   const setsById = new Map(sourceSets.map((set) => [set.id.toLowerCase(), set]));
   const seen = new Set<string>();
