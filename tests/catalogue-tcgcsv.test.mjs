@@ -49,6 +49,9 @@ test("anniversary energy 012 is discoverable in its own MEE group", async () => 
     assert.equal(matches[0].id, energy.id);
     const info = await exports.getTcgCsvCard(energy.id);
     assert.equal(info.localId, "012");
+    assert.equal(info.category, "Energy");
+    assert.equal(info.hp, null);
+    assert.equal(info.variants.holo, true);
     assert.equal(info.set.id, "tcgplayer-24461");
     assert.ok(requests.some((url) => url.endsWith("/24461/products")));
   } finally {
