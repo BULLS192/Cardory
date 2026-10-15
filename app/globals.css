@@ -2053,3 +2053,43 @@ tbody tr:last-child td { border-bottom: 0; }
  .history-controls > label:nth-child(3) { grid-column: 1/-1; }
  .history-benchmark { padding: 12px 0; }
 }
+
+
+/* Evidence coverage for every owned printing, including unsupported histories */
+.history-coverage { margin-top: 18px; }
+.history-coverage .panel-heading p { margin: 7px 0; font-size: 12px; color: var(--muted); }
+.history-coverage-stats {
+ display: grid; grid-template-columns: repeat(4, minmax(0,1fr));
+ gap: 8px; margin: 16px 0; 
+}
+.history-coverage-stats>div {
+ display: flex; flex-direction: column; gap: 5px;
+ background: #f3f5f8; border-radius: 9px; padding: 13px;
+}
+.history-coverage-stats strong { font-size: 23px; line-height: 1.1; }
+.history-coverage-stats span { font-size: 11px; color: var(--muted); }
+.history-coverage-tools { display:flex; gap: 10px; flex-wrap: wrap; margin: 15px 0; }
+.history-coverage-tools label { flex: 1 1 220px; display: grid; gap:5px; }
+.history-coverage-tools label span { color: var(--muted); font-size: 11px; font-weight: 600; }
+.history-coverage-tools input, .history-coverage-tools select {
+ border: 1px solid var(--line); border-radius: 9px; background: white;
+ width:100%; min-height: 39px; padding: 8px 10px; font-size: 12px;
+}
+.history-coverage-scroll { overflow-x:auto; width:100%; }
+.history-coverage-scroll table { border-collapse:collapse; min-width: 675px; width: 100%; text-align:left; }
+.history-coverage-scroll th {
+ font-size: 10px; letter-spacing: .07em; text-transform:uppercase;
+ padding: 11px 9px; color: var(--muted); background:#f6f8fb; border-bottom:1px solid var(--line);
+}
+.history-coverage-scroll td { padding:11px 9px; border-bottom:1px solid var(--line); font-size:11px; vertical-align:top; }
+.history-coverage-scroll small { display:block; font-size:10px; color:var(--muted); margin-top:3px; }
+.history-card-link { border:0; background: transparent; padding:0; color:#245c95; text-align:left; font:inherit; font-weight:700; cursor:pointer; }
+.history-card-link:hover { text-decoration:underline; }
+.history-sourced { color:#236a51; font-size:11px; }
+.history-not-yet { color:#857044; }
+.history-see-all { width:100%; margin:12px 0; }
+@media (max-width:680px) {
+ .history-coverage-stats { grid-template-columns: 1fr 1fr; }
+ .history-coverage-stats strong { font-size:20px; }
+ .history-coverage-tools label { flex-basis: 100%; }
+}
