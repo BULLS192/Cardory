@@ -96,14 +96,14 @@ export default function HistoryCoverageTable({
                 </td>
                 <td>{dateLabel(row.firstDate)}
                   {row.firstDate && row.firstPrice != null &&
-                    <small>{money(row.firstPrice, row.lastCurrency)}</small>}
+                    <small>{money(row.firstPrice, row.firstCurrency)}</small>}
                 </td>
                 <td>{dateLabel(row.lastDate)}
                   {row.lastDate && <small>{money(row.lastPrice,row.lastCurrency)}</small>}
                 </td>
                 <td>{row.observedDays || "—"}</td>
                 <td>{row.firstDate && row.firstDate < baseline
-                  ? <strong className="history-sourced">Documented</strong>
+                  ? <strong className="history-sourced">{row.source?.includes("USER_CSV_UNVERIFIED") ? "Imported (unverified)" : "Documented"}</strong>
                   : <span className="history-not-yet">Needs source</span>}
                   {row.source?.includes("BillsArchive") &&
                     <small><a href="https://billsarchive.com/articles/30th-celebration-prices-release-to-now.html"
