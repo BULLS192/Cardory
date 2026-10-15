@@ -2036,3 +2036,20 @@ tbody tr:last-child td { border-bottom: 0; }
   .history-ranges button { flex: 1; }
   .history-headline > strong { overflow-wrap: anywhere; }
 }
+
+
+/* Release-era third-party set benchmarks (indices, not holdings value) */
+.history-benchmark-panel { margin-top: 20px; }
+.history-benchmark-panel .panel-heading p { margin: 6px 0 0; }
+.history-benchmark { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.history-benchmark:last-of-type { border-bottom: 0; }
+.history-benchmark h3 { font-size: 15px; font-weight: 700; margin: 0 0 10px; }
+.history-benchmark .history-chart { max-height: 300px; }
+.history-benchmark .portfolio-footnote { margin: 10px 0 0; }
+.history-benchmark a { text-decoration: underline; text-underline-offset: 2px; }
+.history-controls > label { min-width: 150px; }
+@media (max-width:650px) {
+ .history-controls > label:first-child { grid-column: 1/-1; }
+ .history-controls > label:nth-child(3) { grid-column: 1/-1; }
+ .history-benchmark { padding: 12px 0; }
+}
