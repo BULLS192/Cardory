@@ -8,6 +8,7 @@ import { buildPortfolioHistory, rangeHistory, availableHistoryCurrencies,
   type HistoryRange, type PriceObservation } from "@/lib/portfolio-history";
 import { ValueModeSwitch } from "@/components/PortfolioValueSummary";
 import SetMarketBenchmarks from "@/components/SetMarketBenchmarks";
+import HistoryCoverageTable from "@/components/HistoryCoverageTable";
 import type { HistoryBasis } from "@/lib/portfolio-history";
 
 export type HistoricalScope = {
@@ -246,6 +247,13 @@ export default function PortfolioHistory({
             </article>
           )}
           <SetMarketBenchmarks cards={scope.cards} />
+          <HistoryCoverageTable cards={cards} observations={readings}
+            onSelect={(recordId) => {
+              setScopeId("card:" + recordId);
+              setHistoryBasis("market");
+              setRange("ALL");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }} />
         </>
       )}
     </section>
