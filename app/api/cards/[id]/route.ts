@@ -11,6 +11,7 @@ function languageFromUrl(request: Request): CardLanguage {
   const value = new URL(request.url).searchParams.get("language");
   if (value === "Japanese") return "Japanese";
   if (value === "Chinese") return "Chinese";
+  if (value === "Chinese Simplified") return "Chinese Simplified";
   return "English";
 }
 
