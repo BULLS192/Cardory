@@ -5,8 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { CardGame, CardLanguage } from "@/lib/types";
 import { extractChineseCollectorNumber } from "@/lib/chinese-collector-ocr";
 import { parsePrintedIdentity } from "@/lib/scanner-recognition";
-import { compareCatalogueArtwork, type VisualCandidate } from "@/lib/scanner-visual";
-import { cardImage } from "@/lib/tcgdex";
+import { compareCatalogueArtwork, SET_ARTWORK_MATCH_LIMIT, type VisualCandidate } from "@/lib/scanner-visual";
+import { cardImage, tcgdexLanguageCode } from "@/lib/tcgdex";
 import type { CardSearchResult } from "@/lib/types";
 
 type ScannerProps = {
@@ -17,7 +17,8 @@ type ScannerProps = {
   setCode?: string;
 };
 
-type Status = "camera" | "processing" | "result" | "error";
+type Status = "camera" | "processing" | "result";
+type SetOption = { id: string; name: string };
 
 function normalizeCandidate(value: string) {
   return value
@@ -89,6 +90,9 @@ export default function CardScanner({
   const [visualBusy, setVisualBusy] = useState(false);
   const [visualProgress, setVisualProgress] = useState("");
   const [visualNotice, setVisualNotice] = useState("");
+  const [setQuery, setSetQuery] = useState(setCode ?? "");
+  const [catalogSets, setCatalogSets] = useState<SetOption[]>([]);
+  const [setLookupError, setSetLookupError] = useState("");
   const lastCaptureRef = useRef<HTMLCanvasElement | null>(null);
   const scanEpochRef = useRef(0);
 
@@ -97,6 +101,87 @@ export default function CardScanner({
     return () => stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (status !== "result" || game !== "pokemon" || catalogSets.length) return;
+    const controller = new AbortController();
+    void fetch("/api/catalog/sets?language=" + tcgdexLanguageCode(language), {
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("Set lookup unavailable");
+      return response.json() as Promise<{ sets?: SetOption[] }>;
+    }).then((data) => {
+      if (Array.isArray(data.sets)) setCatalogSets(data.sets);
+    }).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setSetLookupError("Set suggestions unavailable. You can still enter an exact set ID.");
+      }
+    });
+    return () => controller.abort();
+  }, [status, game, language, catalogSets.length]);
+
+  function resolveSetId(value: string): string {
+    const input = value.trim();
+    const labelled = /\[([a-zA-Z0-9_-]{1,64})\]$/.exec(input);
+    if (labelled) return labelled[1];
+    const exactId = catalogSets.find((set) => set.id.toLowerCase() === input.toLowerCase());
+    if (exactId) return exactId.id;
+    const byName = catalogSets.filter((set) => set.name.toLowerCase() === input.toLowerCase());
+    if (byName.length === 1) return byName[0].id;
+    return /^[a-zA-Z0-9_-]{1,64}$/.test(input) ? input : "";
+  }
+
+  async function findSetVisualMatches(canvas: HTMLCanvasElement, query: string) {
+    const epoch = ++scanEpochRef.current;
+    const selectedSet = resolveSetId(query);
+    setMatches([]);
+    setPreferredId("");
+    setVisualNotice("");
+    if (!selectedSet) {
+      setVisualNotice("Choose a catalogue set from the suggestions, or enter its exact set ID.");
+      return;
+    }
+    setVisualBusy(true);
+    setVisualProgress("Loading set artwork…");
+    try {
+      const response = await fetch("/api/catalog/sets/" + encodeURIComponent(selectedSet) +
+        "?language=" + tcgdexLanguageCode(language));
+      if (!response.ok) throw new Error("Set unavailable");
+      const data = await response.json() as {
+        set?: { id: string; name: string; cards: CardSearchResult[] };
+      };
+      if (epoch !== scanEpochRef.current) return;
+      const cardSet = data.set;
+      const cards = (cardSet?.cards ?? []).filter((card) => !!card.image).map((card) => ({
+        ...card, setId: cardSet?.id, setName: cardSet?.name, game, language,
+      }));
+      if (!cards.length) {
+        setVisualNotice("This set has no reference artwork in the selected language. Enter the collector number instead.");
+        return;
+      }
+      const ranked = await compareCatalogueArtwork(canvas, cards, (done, total) => {
+        if (epoch === scanEpochRef.current) setVisualProgress("Comparing set artwork " + done + "/" + total);
+      }, SET_ARTWORK_MATCH_LIMIT);
+      if (epoch !== scanEpochRef.current) return;
+      const visible = ranked.filter((entry) => entry.similarity !== null).slice(0, 5);
+      setMatches(visible);
+      const coverage = cards.length > SET_ARTWORK_MATCH_LIMIT
+        ? " Only the first " + SET_ARTWORK_MATCH_LIMIT + " of " + cards.length + " cards were checked."
+        : "";
+      setVisualNotice(visible.length
+        ? "Visual suggestions from " + cardSet?.name + ". Confirm the image, number and printing before adding." + coverage
+        : "Reference artwork could not be compared. Try another photo or enter the printed number." + coverage);
+    } catch {
+      if (epoch === scanEpochRef.current) {
+        setVisualNotice("Could not load that set. Check the set ID or select a suggestion.");
+      }
+    } finally {
+      if (epoch === scanEpochRef.current) {
+        setVisualBusy(false);
+        setVisualProgress("");
+      }
+    }
+  }
 
   function stopCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -151,7 +236,7 @@ export default function CardScanner({
     try {
       const params = new URLSearchParams({ game, language, number: printed });
       // A freshly read printed code takes precedence over stale session input.
-      if (!parsePrintedIdentity(printed)?.setCode && setCode?.trim()) params.set("set", setCode.trim());
+      if (!parsePrintedIdentity(printed)?.setCode && setQuery.trim()) params.set("set", setQuery.trim());
       const response = await fetch("/api/cards/search?" + params.toString());
       if (!response.ok) throw new Error("Catalogue search unavailable");
       const data = await response.json() as { results?: CardSearchResult[] };
@@ -251,8 +336,9 @@ export default function CardScanner({
       setRawText(text);
       setCandidate(number);
       if (!number) {
-        setStatus("error");
-        setMessage("Could not confidently find the printed set code and collector number. Retake the photo or enter them manually.");
+        setStatus("result");
+        setMessage("The collector number was not readable. Use artwork matching with a set, or enter the number.");
+        if (game === "pokemon" && setQuery.trim()) void findSetVisualMatches(canvas, setQuery);
         return;
       }
 
@@ -260,8 +346,9 @@ export default function CardScanner({
       setMessage("Detected " + number + ". Verify the number while artwork comparison runs.");
       void findVisualMatches(canvas, number);
     } catch {
-      setStatus("error");
-      setMessage("OCR could not complete on this device. Retake the photo or enter the printed code and number manually.");
+      setStatus("result");
+      setMessage("Text recognition did not complete. You can still compare artwork within a set or type the number.");
+      if (game === "pokemon" && setQuery.trim()) void findSetVisualMatches(canvas, setQuery);
     } finally {
       if (worker) await worker.terminate().catch(() => undefined);
     }
@@ -272,12 +359,25 @@ export default function CardScanner({
     if (!video || !video.videoWidth || !video.videoHeight) return;
 
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Match the visible 46%-wide card guide rather than OCR-ing all the camera
+    // background. The video uses object-fit: cover inside a 4:3 viewport.
+    const displayWidth = video.clientWidth || video.videoWidth;
+    const displayHeight = video.clientHeight || video.videoHeight;
+    const scale = Math.max(displayWidth / video.videoWidth, displayHeight / video.videoHeight);
+    const renderedWidth = video.videoWidth * scale;
+    const renderedHeight = video.videoHeight * scale;
+    const offsetX = (renderedWidth - displayWidth) / 2;
+    const offsetY = (renderedHeight - displayHeight) / 2;
+    const x = (offsetX + displayWidth * .25) / scale;
+    const y = (offsetY + displayHeight * .05) / scale;
+    const width = displayWidth * .50 / scale;
+    const height = displayHeight * .90 / scale;
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    context.drawImage(video, x, y, width, height, 0, 0, canvas.width, canvas.height);
     await recognize(canvas);
   }
 
@@ -293,11 +393,12 @@ export default function CardScanner({
       });
 
       const canvas = document.createElement("canvas");
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
+      const fileScale = Math.min(1, 2400 / Math.max(image.naturalWidth, image.naturalHeight));
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * fileScale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * fileScale));
       const context = canvas.getContext("2d");
       if (!context) return;
-      context.drawImage(image, 0, 0);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
       await recognize(canvas);
     } finally {
       URL.revokeObjectURL(objectUrl);
@@ -308,7 +409,7 @@ export default function CardScanner({
     const normalized = game === "pokemon" &&
       (language === "Japanese" || language === "Chinese" || language === "Chinese Simplified")
       ? candidate.normalize("NFKC").trim() : normalizeCandidate(candidate);
-    if (!normalized) return;
+    if (!normalized && !preferredId) return;
     await onDetected(normalized, rawText, preferredId || undefined);
   }
 
@@ -388,16 +489,51 @@ export default function CardScanner({
         />
       </div>
 
-      {(status === "result" || status === "error") && (
+      {status === "result" && (
         <div className="scanner-result">
           <label>
-            <span>Detected collector number</span>
+            <span>Collector number · auto-read or manual</span>
             <input
               value={candidate}
               onChange={(event) => { scanEpochRef.current++; setCandidate(event.target.value); setMatches([]); setPreferredId(""); setVisualBusy(false); }}
               placeholder={game === "riftbound" ? "030/298 or 030a/298" : (language === "Chinese" || language === "Chinese Simplified") ? "CSV9C 023/190" : "203/193"}
             />
           </label>
+
+          {game === "pokemon" && !!lastCaptureRef.current && (
+            <div className="scanner-set-fallback">
+              <label>
+                <span>Artwork-only matching · choose the set</span>
+                <input value={setQuery} list="scanner-set-options"
+                  placeholder="Type a set name or ID, e.g. sv5a"
+                  onChange={(event) => {
+                    scanEpochRef.current++;
+                    setSetQuery(event.target.value);
+                    setMatches([]);
+                    setPreferredId("");
+                    setVisualBusy(false);
+                    setVisualNotice("");
+                  }} />
+                <datalist id="scanner-set-options">
+                  {catalogSets
+                    .filter((set) => !setQuery.trim() ||
+                      set.id.toLowerCase().includes(setQuery.toLowerCase()) ||
+                      set.name.toLowerCase().includes(setQuery.toLowerCase()))
+                    .slice(0, 60)
+                    .map((set) => (
+                      <option key={set.id} value={set.name + " [" + set.id + "]"} />
+                    ))}
+                </datalist>
+              </label>
+              {setLookupError && <p className="muted">{setLookupError}</p>}
+              <button type="button" className="ghost"
+                disabled={!setQuery.trim() || visualBusy}
+                onClick={() => void findSetVisualMatches(lastCaptureRef.current!, setQuery)}>
+                <ImageIcon size={16} /> {visualBusy ? "Matching artwork…" : "Find card by artwork"}
+              </button>
+              <p className="muted">No readable number needed. Set matching is limited to 240 reference cards per scan; verify the result yourself.</p>
+            </div>
+          )}
 
           {rawText && (
             <details>
@@ -414,7 +550,7 @@ export default function CardScanner({
                 <label className="scanner-match-option" key={card.id}>
                   <input type="radio" name="visual-card-match" value={card.id}
                     checked={preferredId === card.id}
-                    onChange={() => setPreferredId(card.id)} />
+                    onChange={() => { setPreferredId(card.id); setCandidate(String(card.localId)); }} />
                   {card.image && (
                     <img loading="lazy" alt="" width={44} height={61}
                       src={"/api/scanner/artwork?src=" + encodeURIComponent(cardImage(card.image, "low") ?? card.image)} />
@@ -431,14 +567,14 @@ export default function CardScanner({
             </fieldset>
           )}
           {visualNotice && <p className="muted" role="note">{visualNotice}</p>}
-          {!visualBusy && !!candidate.trim() && !!lastCaptureRef.current && (
+          {!visualBusy && !!candidate.trim() && !preferredId && !!lastCaptureRef.current && (
             <button type="button" className="ghost"
               onClick={() => void findVisualMatches(lastCaptureRef.current!, candidate)}>
               Compare artwork again
             </button>
           )}
           <button type="button" className="primary" onClick={() => void confirm()}
-            disabled={!candidate.trim()}>
+            disabled={!candidate.trim() && !preferredId}>
             <Check size={17} /> {preferredId ? "Review selected printing" : "Search this card number"}
           </button>
         </div>
