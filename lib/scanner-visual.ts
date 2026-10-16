@@ -10,6 +10,7 @@ type DualFingerprint = { full: ImageFingerprint; art: ImageFingerprint };
 const artworkCache = new Map<string, DualFingerprint | null>();
 const MAX_CACHE = 250;
 const MATCH_LIMIT = 16;
+export const SET_ARTWORK_MATCH_LIMIT = 240;
 
 function drawNormalized(source: CanvasImageSource, originalWidth: number, originalHeight: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
@@ -86,10 +87,11 @@ function similarity(a: DualFingerprint, b: DualFingerprint): number {
 export async function compareCatalogueArtwork(
   captured: HTMLCanvasElement,
   candidates: CardSearchResult[],
-  onProgress?: (completed: number, total: number) => void
+  onProgress?: (completed: number, total: number) => void,
+  limit = MATCH_LIMIT
 ): Promise<VisualCandidate[]> {
   const target = capturedCardFingerprints(captured);
-  const chosen = candidates.slice(0, MATCH_LIMIT);
+  const chosen = candidates.slice(0, Math.max(1, Math.min(SET_ARTWORK_MATCH_LIMIT, limit)));
   const result: VisualCandidate[] = new Array(chosen.length);
   let next = 0;
   let done = 0;
