@@ -4,12 +4,17 @@ import { Camera, Check, Image as ImageIcon, Loader2, RefreshCw, X } from "lucide
 import { useEffect, useRef, useState } from "react";
 import { CardGame, CardLanguage } from "@/lib/types";
 import { extractChineseCollectorNumber } from "@/lib/chinese-collector-ocr";
+import { parsePrintedIdentity } from "@/lib/scanner-recognition";
+import { compareCatalogueArtwork, type VisualCandidate } from "@/lib/scanner-visual";
+import { cardImage } from "@/lib/tcgdex";
+import type { CardSearchResult } from "@/lib/types";
 
 type ScannerProps = {
   game: CardGame;
   language: CardLanguage;
-  onDetected: (number: string, rawText: string) => Promise<void> | void;
+  onDetected: (number: string, rawText: string, preferredCardId?: string) => Promise<void> | void;
   onClose: () => void;
+  setCode?: string;
 };
 
 type Status = "camera" | "processing" | "result" | "error";
@@ -22,24 +27,6 @@ function normalizeCandidate(value: string) {
     .replace(/O/g, "0")
     .replace(/I/g, "1")
     .replace(/L(?=\d)/g, "1");
-}
-
-function extractCollectorNumber(raw: string) {
-  const cleaned = raw.toUpperCase().replace(/\n+/g, " ").replace(/\s+/g, " ");
-
-  const slashMatch = cleaned.match(/(\d{1,3}[A-Z*]?)\s*[\/|\\]\s*(\d{1,3})/);
-  if (slashMatch) {
-    return normalizeCandidate(`${slashMatch[1]}/${slashMatch[2]}`);
-  }
-
-  const compact = normalizeCandidate(cleaned);
-  const compactSlash = compact.match(/(\d{1,3}[A-Z*]?)\/(\d{1,3})/);
-  if (compactSlash) {
-    return `${compactSlash[1]}/${compactSlash[2]}`;
-  }
-
-  const standalone = cleaned.match(/\b(\d{1,3}[A-Z*]?)\b/);
-  return standalone ? normalizeCandidate(standalone[1]) : "";
 }
 
 function preprocessCanvas(source: HTMLCanvasElement, chinese = false) {
@@ -86,6 +73,7 @@ export default function CardScanner({
   language,
   onDetected,
   onClose,
+  setCode,
 }: ScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -96,6 +84,12 @@ export default function CardScanner({
   const [rawText, setRawText] = useState("");
   const [candidate, setCandidate] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
+  const [matches, setMatches] = useState<VisualCandidate[]>([]);
+  const [preferredId, setPreferredId] = useState("");
+  const [visualBusy, setVisualBusy] = useState(false);
+  const [visualProgress, setVisualProgress] = useState("");
+  const [visualNotice, setVisualNotice] = useState("");
+  const lastCaptureRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     void startCamera();
@@ -112,7 +106,10 @@ export default function CardScanner({
   async function startCamera() {
     stopCamera();
     setStatus("camera");
-    setMessage("Point the lower edge of the card inside the frame.");
+    setMessage("Center the entire card in the frame, including its number.");
+    setMatches([]);
+    setPreferredId("");
+    setVisualNotice("");
 
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -141,7 +138,44 @@ export default function CardScanner({
     }
   }
 
+  async function findVisualMatches(canvas: HTMLCanvasElement, printed: string) {
+    setMatches([]);
+    setPreferredId("");
+    setVisualNotice("");
+    setVisualBusy(true);
+    setVisualProgress("Looking up catalogue artwork…");
+    try {
+      const params = new URLSearchParams({ game, language, number: printed });
+      if (setCode?.trim()) params.set("set", setCode.trim());
+      const response = await fetch("/api/cards/search?" + params.toString());
+      if (!response.ok) throw new Error("Catalogue search unavailable");
+      const data = await response.json() as { results?: CardSearchResult[] };
+      const options = Array.isArray(data.results) ? data.results : [];
+      if (!options.length) {
+        setVisualNotice("No indexed printing matches this number. Check the set code or search manually.");
+        return;
+      }
+      const ranked = await compareCatalogueArtwork(canvas, options,
+        (done, total) => setVisualProgress("Comparing artwork " + done + "/" + total));
+      setMatches(ranked.slice(0, 5));
+      if (!ranked.some((entry) => entry.similarity !== null)) {
+        setVisualNotice("Reference artwork is unavailable. Confirm the set and number in the catalogue.");
+      } else {
+        setVisualNotice("Artwork similarity is a suggestion, not proof of set or foil variant. Select the correct printing.");
+      }
+    } catch {
+      setVisualNotice("Artwork comparison is unavailable. Number search still works.");
+    } finally {
+      setVisualBusy(false);
+      setVisualProgress("");
+    }
+  }
+
   async function recognize(canvas: HTMLCanvasElement) {
+    lastCaptureRef.current = canvas;
+    setMatches([]);
+    setPreferredId("");
+    setVisualNotice("");
     setStatus("processing");
     setProgress(0);
     const chinese = game === "pokemon" &&
@@ -176,7 +210,9 @@ export default function CardScanner({
 
       const first = await worker.recognize(preprocessCanvas(canvas, chinese));
       let text = first.data.text?.trim() ?? "";
-      let number = chinese ? extractChineseCollectorNumber(text) : extractCollectorNumber(text);
+      let identity = chinese ? null : parsePrintedIdentity(text);
+      let number = chinese ? extractChineseCollectorNumber(text) :
+        identity ? (identity.setCode ? identity.setCode + " " : "") + identity.number : "";
 
       // The set code isn't consistently in the last 40% on Chinese cards.
       // A second full-image pass is safer than guessing from a damage or HP stat.
@@ -190,6 +226,17 @@ export default function CardScanner({
         }
       }
 
+      if (!chinese && (!identity || identity.confidence !== "high")) {
+        const second = await worker.recognize(canvas);
+        const fullText = second.data.text?.trim() ?? "";
+        const fullIdentity = parsePrintedIdentity(fullText);
+        text = [text, fullText].filter(Boolean).join("\n");
+        if (fullIdentity && (!identity || fullIdentity.confidence === "high")) {
+          identity = fullIdentity;
+          number = (identity.setCode ? identity.setCode + " " : "") + identity.number;
+        }
+      }
+
       setRawText(text);
       setCandidate(number);
       if (!number) {
@@ -198,8 +245,10 @@ export default function CardScanner({
         return;
       }
 
+      setMessage("Detected " + number + ". Comparing catalogue artwork…");
+      await findVisualMatches(canvas, number);
       setStatus("result");
-      setMessage(`Detected ${number}. Confirm the printed code and number before searching.`);
+      setMessage("Detected " + number + ". Verify the printing before adding.");
     } catch {
       setStatus("error");
       setMessage("OCR could not complete on this device. Retake the photo or enter the printed code and number manually.");
@@ -246,10 +295,11 @@ export default function CardScanner({
   }
 
   async function confirm() {
-    const normalized = game === "pokemon" && (language === "Chinese" || language === "Chinese Simplified")
+    const normalized = game === "pokemon" &&
+      (language === "Japanese" || language === "Chinese" || language === "Chinese Simplified")
       ? candidate.normalize("NFKC").trim() : normalizeCandidate(candidate);
     if (!normalized) return;
-    await onDetected(normalized, rawText);
+    await onDetected(normalized, rawText, preferredId || undefined);
   }
 
   return (
@@ -257,9 +307,9 @@ export default function CardScanner({
       <div className="scanner-heading">
         <div>
           <span className="eyebrow">Scan Assist</span>
-          <h2>Scan collector number</h2>
+          <h2>Scanner 2.0 · artwork + OCR</h2>
           <p>
-            {game === "riftbound" ? "Riftbound" : "Pokémon"} · {language}. The image stays on this device; OCR reads the printed number locally.
+            {game === "riftbound" ? "Riftbound" : "Pokémon"} · {language}. Your photo stays on this device; only public catalogue artwork is fetched for comparison.
           </p>
         </div>
         <button className="icon-button" type="button" onClick={onClose} aria-label="Close scanner">
@@ -271,7 +321,7 @@ export default function CardScanner({
         <video ref={videoRef} playsInline muted className="scanner-video" />
         <div className="scanner-shade scanner-shade-top" />
         <div className="scanner-target">
-          <span>Keep the card number in this lower zone</span>
+          <span>Center one entire card inside the guide</span>
         </div>
       </div>
 
@@ -279,7 +329,7 @@ export default function CardScanner({
         {status === "processing" ? <Loader2 size={16} className="spin" /> : <Camera size={16} />}
         <div>
           <strong>{message}</strong>
-          {status === "processing" && <span>{progress}%</span>}
+          {status === "processing" && <span>{visualBusy ? visualProgress : progress + "%"}</span>}
         </div>
       </div>
 
@@ -334,7 +384,7 @@ export default function CardScanner({
             <span>Detected collector number</span>
             <input
               value={candidate}
-              onChange={(event) => setCandidate(event.target.value)}
+              onChange={(event) => { setCandidate(event.target.value); setMatches([]); setPreferredId(""); }}
               placeholder={game === "riftbound" ? "030/298 or 030a/298" : (language === "Chinese" || language === "Chinese Simplified") ? "CSV9C 023/190" : "203/193"}
             />
           </label>
@@ -346,15 +396,46 @@ export default function CardScanner({
             </details>
           )}
 
-          <button type="button" className="primary" onClick={() => void confirm()} disabled={!candidate.trim()}>
-            <Check size={17} />
-            Search this card number
+          {visualBusy && <p role="status" className="muted">{visualProgress}</p>}
+          {matches.length > 0 && (
+            <fieldset className="scanner-match-list">
+              <legend>Suggested printings · select only if the artwork and set match</legend>
+              {matches.map(({ card, similarity }, index) => (
+                <label className="scanner-match-option" key={card.id}>
+                  <input type="radio" name="visual-card-match" value={card.id}
+                    checked={preferredId === card.id}
+                    onChange={() => setPreferredId(card.id)} />
+                  {card.image && (
+                    <img loading="lazy" alt="" width={44} height={61}
+                      src={"/api/scanner/artwork?src=" + encodeURIComponent(cardImage(card.image, "low") ?? card.image)} />
+                  )}
+                  <span>
+                    <strong>{card.name} #{card.localId}</strong>
+                    <small>{card.setName ?? card.setId ?? "Unknown set"} · {similarity == null ? "Number match" : "Artwork suggestion " + (index + 1)}</small>
+                  </span>
+                </label>
+              ))}
+              <button type="button" className="text-button" onClick={() => setPreferredId("")}>
+                Clear artwork selection
+              </button>
+            </fieldset>
+          )}
+          {visualNotice && <p className="muted" role="note">{visualNotice}</p>}
+          {!visualBusy && !!candidate.trim() && !!lastCaptureRef.current && (
+            <button type="button" className="ghost"
+              onClick={() => void findVisualMatches(lastCaptureRef.current!, candidate)}>
+              Compare artwork again
+            </button>
+          )}
+          <button type="button" className="primary" onClick={() => void confirm()}
+            disabled={!candidate.trim() || visualBusy}>
+            <Check size={17} /> {preferredId ? "Review selected printing" : "Search this card number"}
           </button>
         </div>
       )}
 
       <p className="scanner-footnote">
-        Tip: fill most of the frame with one card, keep it upright, and avoid glare over the collector number. Chinese printings: include the Latin set code beside the printed number.
+        Tip: show the full card, keep it upright, and minimize glare. Artwork ranking does not determine foil type; verify the exact printing. Chinese and Japanese cards: keep the set code visible.
       </p>
     </article>
   );
