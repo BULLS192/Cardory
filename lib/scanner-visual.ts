@@ -9,7 +9,7 @@ type DualFingerprint = { full: ImageFingerprint; art: ImageFingerprint };
 
 const artworkCache = new Map<string, DualFingerprint | null>();
 const MAX_CACHE = 250;
-const MATCH_LIMIT = 24;
+const MATCH_LIMIT = 16;
 
 function drawNormalized(source: CanvasImageSource, originalWidth: number, originalHeight: number): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
@@ -56,7 +56,7 @@ async function referenceFingerprint(url: string): Promise<DualFingerprint | null
   if (artworkCache.has(url)) return artworkCache.get(url) ?? null;
   const source = await new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
-    const timeout = window.setTimeout(() => reject(new Error("Artwork timed out")), 9000);
+    const timeout = window.setTimeout(() => reject(new Error("Artwork timed out")), 5000);
     image.onload = () => { window.clearTimeout(timeout); resolve(image); };
     image.onerror = () => { window.clearTimeout(timeout); reject(new Error("Artwork unavailable")); };
     // Proxy only publicly listed catalogue-art domains. The user photo stays local.
@@ -93,7 +93,7 @@ export async function compareCatalogueArtwork(
   const result: VisualCandidate[] = new Array(chosen.length);
   let next = 0;
   let done = 0;
-  await Promise.all(Array.from({ length: Math.min(4, chosen.length) }, async () => {
+  await Promise.all(Array.from({ length: Math.min(8, chosen.length) }, async () => {
     while (next < chosen.length) {
       const index = next++;
       const card = chosen[index];
