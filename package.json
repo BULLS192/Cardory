@@ -16,7 +16,8 @@
     "test:portfolio": "node --test tests/portfolio-valuation.test.mjs",
     "test:history": "node --test tests/portfolio-history.test.mjs",
     "test:history-coverage": "node --test tests/history-coverage.test.mjs",
-    "history:import": "node scripts/import-history-csv.mjs"
+    "history:import": "node scripts/import-history-csv.mjs",
+    "test:scanner": "node --test tests/scanner-recognition.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
