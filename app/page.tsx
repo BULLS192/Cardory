@@ -1261,7 +1261,7 @@ function AddCard({
   }
 
   async function handleScannedNumber(detectedNumber: string, preferredId?: string) {
-    const chinese = isChinese ? parseChineseNumber(detectedNumber, chineseSetCode) : null;
+    const chinese = isChinese ? parseChineseNumber(detectedNumber) : null;
     const japanese = game === "pokemon" && language === "Japanese"
       ? parsePrintedIdentity(detectedNumber) : null;
     const lookup = chinese?.collectorNumber || japanese?.number || detectedNumber;
