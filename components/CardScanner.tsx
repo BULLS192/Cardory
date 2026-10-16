@@ -146,7 +146,8 @@ export default function CardScanner({
     setVisualProgress("Looking up catalogue artwork…");
     try {
       const params = new URLSearchParams({ game, language, number: printed });
-      if (setCode?.trim()) params.set("set", setCode.trim());
+      // A freshly read printed code takes precedence over stale session input.
+      if (!parsePrintedIdentity(printed)?.setCode && setCode?.trim()) params.set("set", setCode.trim());
       const response = await fetch("/api/cards/search?" + params.toString());
       if (!response.ok) throw new Error("Catalogue search unavailable");
       const data = await response.json() as { results?: CardSearchResult[] };
