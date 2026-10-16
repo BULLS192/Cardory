@@ -133,7 +133,7 @@ export default function CardScanner({
 
   async function findSetVisualMatches(canvas: HTMLCanvasElement, query: string) {
     const epoch = ++scanEpochRef.current;
-    const selectedSet = resolveSetId(query);
+    let selectedSet = resolveSetId(query);
     setMatches([]);
     setPreferredId("");
     setVisualNotice("");
@@ -144,8 +144,26 @@ export default function CardScanner({
     setVisualBusy(true);
     setVisualProgress("Loading set artwork…");
     try {
-      const response = await fetch("/api/catalog/sets/" + encodeURIComponent(selectedSet) +
-        "?language=" + tcgdexLanguageCode(language));
+      const locale = tcgdexLanguageCode(language);
+      let response = await fetch("/api/catalog/sets/" + encodeURIComponent(selectedSet) +
+        "?language=" + locale);
+      if (response.status === 404) {
+        // Set IDs are case-sensitive upstream (e.g. SV5a). Resolve manually
+        // entered codes against the canonical catalogue ID before giving up.
+        const listResponse = await fetch("/api/catalog/sets?language=" + locale);
+        if (listResponse.ok) {
+          const listData = await listResponse.json() as { sets?: SetOption[] };
+          const exact = listData.sets?.find((set) =>
+            set.id.toLowerCase() === selectedSet.toLowerCase() ||
+            set.name.toLowerCase() === query.trim().toLowerCase());
+          if (exact && exact.id !== selectedSet) {
+            selectedSet = exact.id;
+            setSetQuery(exact.name + " [" + exact.id + "]");
+            response = await fetch("/api/catalog/sets/" + encodeURIComponent(selectedSet) +
+              "?language=" + locale);
+          }
+        }
+      }
       if (!response.ok) throw new Error("Set unavailable");
       const data = await response.json() as {
         set?: { id: string; name: string; cards: CardSearchResult[] };
