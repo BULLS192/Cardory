@@ -42,6 +42,7 @@ import { availableVariants, cardImage, extractMarketPrice, isPriceStale } from "
 import CardScanner from "@/components/CardScanner";
 import SetCompletionView from "@/components/SetCompletion";
 import { makeUnlistedChineseIdentity, parseChineseNumber } from "@/lib/chinese-card-search";
+import { parsePrintedIdentity } from "@/lib/scanner-recognition";
 import { newBinder, replaceBinderCards, replaceBinderDetails, validateBinder } from "@/lib/binder-helpers";
 import EditBinder from "@/components/EditBinder";
 import PortfolioValueSummary from "@/components/PortfolioValueSummary";
@@ -1224,8 +1225,8 @@ function AddCard({
       const params = new URLSearchParams();
       if (searchName.trim()) params.set("name", searchName.trim());
       if (searchNumber.trim()) params.set("number", searchNumber.trim());
-      if (game === "pokemon" && language === "Japanese" && japaneseSetCode.trim()) {
-        params.set("set", japaneseSetCode.trim());
+      if (game === "pokemon" && language === "Japanese" && (setOverride || japaneseSetCode).trim()) {
+        params.set("set", (setOverride || japaneseSetCode).trim());
       }
       if (isChinese && (setOverride || chineseSetCode).trim()) {
         params.set("set", (setOverride || chineseSetCode).trim());
@@ -1259,16 +1260,51 @@ function AddCard({
     await searchCatalogue(name, number);
   }
 
-  async function handleScannedNumber(detectedNumber: string) {
-    const chinese = isChinese ? parseChineseNumber(detectedNumber, chineseSetCode) : null;
-    const lookup = chinese?.collectorNumber || detectedNumber;
+  async function handleScannedNumber(detectedNumber: string, preferredId?: string) {
+    // A user-confirmed visual suggestion is an exact catalogue ID. Load it
+    // directly: OCR may have read no number at all, so number search would fail.
+    if (preferredId) {
+      setName("");
+      setNumber(detectedNumber);
+      setShowScanner(false);
+      setScanNotice("");
+      setLoading(true);
+      try {
+        const card = await loadCard({ id: preferredId, name: "", localId: detectedNumber });
+        if (card) {
+          setSelected(card);
+          setVariant(availableVariants(card)[0] ?? "normal");
+          return;
+        }
+        setScanNotice("That suggested printing is unavailable. Please search by number.");
+      } catch {
+        setScanNotice("Could not load the chosen printing. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    const chinese = isChinese ? parseChineseNumber(detectedNumber) : null;
+    const japanese = game === "pokemon" && language === "Japanese"
+      ? parsePrintedIdentity(detectedNumber) : null;
+    const lookup = chinese?.collectorNumber || japanese?.number || detectedNumber;
     const printedCode = chinese?.setCode || chineseSetCode;
+    const japaneseCode = japanese?.setCode || japaneseSetCode;
     setName("");
     setNumber(lookup);
     if (chinese?.setCode) setChineseSetCode(chinese.setCode);
+    if (japanese?.setCode) setJapaneseSetCode(japanese.setCode);
     setScanNotice("");
-    const found = await searchCatalogue("", lookup, isChinese ? printedCode : undefined);
+    const found = await searchCatalogue("", lookup, isChinese ? printedCode :
+      language === "Japanese" ? japaneseCode : undefined);
     setShowScanner(false);
+    // An explicit artwork selection is still reviewed in the normal detail
+    // form, including manual variant choice; it never quick-adds silently.
+    const chosen = preferredId ? found.find((item) => item.id === preferredId) : null;
+    if (chosen) {
+      await selectCard(chosen);
+      return;
+    }
 
     const wanted = normalizeCollectorNumber(lookup);
     const exact = found.filter((result) => {
@@ -1732,8 +1768,9 @@ function AddCard({
             <CardScanner
               game={game}
               language={language}
-              onDetected={async (detectedNumber) => {
-                await handleScannedNumber(detectedNumber);
+              setCode={(language === "Japanese" ? japaneseSetCode : isChinese ? chineseSetCode : "") || lockedSetId || ""}
+              onDetected={async (detectedNumber, _rawText, preferredId) => {
+                await handleScannedNumber(detectedNumber, preferredId);
               }}
               onClose={() => setShowScanner(false)}
             />

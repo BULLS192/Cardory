@@ -1368,16 +1368,17 @@ tbody tr:last-child td { border-bottom: 0; }
 
 .scanner-shade-top {
   top: 0;
-  height: 60%;
-  background: linear-gradient(to bottom, rgba(5,8,12,.35), rgba(5,8,12,.16));
+  height: 100%;
+  background: linear-gradient(to bottom, rgba(5,8,12,.12), rgba(5,8,12,.05));
 }
 
 .scanner-target {
   position: absolute;
-  left: 5%;
-  right: 5%;
-  bottom: 5%;
-  height: 31%;
+  left: 27%;
+  right: 27%;
+  top: 7%;
+  bottom: 7%;
+  height: 86%;
   border: 2px solid rgba(255,255,255,.92);
   border-radius: 14px;
   box-shadow: 0 0 0 999px rgba(0,0,0,.18);
@@ -1481,6 +1482,26 @@ tbody tr:last-child td { border-bottom: 0; }
   padding: 9px 10px;
 }
 
+.scanner-set-fallback {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid #cfe0f3;
+  border-radius: 12px;
+  background: #f3f8ff;
+}
+
+.scanner-set-fallback .ghost {
+  justify-self: start;
+}
+
+.scanner-set-fallback .muted {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .scanner-result details {
   margin: 10px 0;
   color: #66717d;
@@ -1502,6 +1523,59 @@ tbody tr:last-child td { border-bottom: 0; }
   color: #d7dde5;
   white-space: pre-wrap;
   font-size: 9px;
+}
+
+.scanner-match-list {
+  border: 1px solid #d5dde5;
+  border-radius: 12px;
+  margin: 12px 0;
+  padding: 12px;
+  min-width: 0;
+}
+.scanner-match-list legend {
+  color: #526273;
+  font-size: 11px;
+  font-weight: 750;
+  padding: 0 5px;
+}
+.scanner-result .scanner-match-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e0e6ed;
+  border-radius: 10px;
+  padding: 8px;
+  margin: 6px 0;
+  cursor: pointer;
+}
+.scanner-result .scanner-match-option:has(input:checked) {
+  border-color: #2466ab;
+  background: #ecf5ff;
+}
+.scanner-result .scanner-match-option input {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+}
+.scanner-match-option img {
+  width: 44px;
+  height: 61px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #f1f3f5;
+}
+.scanner-result .scanner-match-option span {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+}
+.scanner-match-option small {
+  display: block;
+  font-size: 10px;
+  color: #62758a;
+  margin-top: 3px;
 }
 
 .scanner-footnote {

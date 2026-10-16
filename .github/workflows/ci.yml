@@ -20,6 +20,7 @@ jobs:
       - run: npm run test:catalogue
       - run: npm run test:japanese
       - run: npm run test:chinese
+      - run: npm run test:scanner
       - run: npm run test:portfolio
       - run: npm run test:history
       - run: npm run test:history-coverage
