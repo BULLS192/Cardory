@@ -1261,6 +1261,29 @@ function AddCard({
   }
 
   async function handleScannedNumber(detectedNumber: string, preferredId?: string) {
+    // A user-confirmed visual suggestion is an exact catalogue ID. Load it
+    // directly: OCR may have read no number at all, so number search would fail.
+    if (preferredId) {
+      setName("");
+      setNumber(detectedNumber);
+      setShowScanner(false);
+      setScanNotice("");
+      setLoading(true);
+      try {
+        const card = await loadCard({ id: preferredId, name: "", localId: detectedNumber });
+        if (card) {
+          setSelected(card);
+          setVariant(availableVariants(card)[0] ?? "normal");
+          return;
+        }
+        setScanNotice("That suggested printing is unavailable. Please search by number.");
+      } catch {
+        setScanNotice("Could not load the chosen printing. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     const chinese = isChinese ? parseChineseNumber(detectedNumber) : null;
     const japanese = game === "pokemon" && language === "Japanese"
       ? parsePrintedIdentity(detectedNumber) : null;
@@ -1745,7 +1768,7 @@ function AddCard({
             <CardScanner
               game={game}
               language={language}
-              setCode={language === "Japanese" ? japaneseSetCode : isChinese ? chineseSetCode : ""}
+              setCode={(language === "Japanese" ? japaneseSetCode : isChinese ? chineseSetCode : "") || lockedSetId || ""}
               onDetected={async (detectedNumber, _rawText, preferredId) => {
                 await handleScannedNumber(detectedNumber, preferredId);
               }}
