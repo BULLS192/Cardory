@@ -90,6 +90,7 @@ export default function CardScanner({
   const [visualProgress, setVisualProgress] = useState("");
   const [visualNotice, setVisualNotice] = useState("");
   const lastCaptureRef = useRef<HTMLCanvasElement | null>(null);
+  const scanEpochRef = useRef(0);
 
   useEffect(() => {
     void startCamera();
@@ -105,6 +106,8 @@ export default function CardScanner({
 
   async function startCamera() {
     stopCamera();
+    scanEpochRef.current++;
+    setVisualBusy(false);
     setStatus("camera");
     setMessage("Center the entire card in the frame, including its number.");
     setMatches([]);
@@ -139,6 +142,7 @@ export default function CardScanner({
   }
 
   async function findVisualMatches(canvas: HTMLCanvasElement, printed: string) {
+    const epoch = ++scanEpochRef.current;
     setMatches([]);
     setPreferredId("");
     setVisualNotice("");
@@ -151,13 +155,17 @@ export default function CardScanner({
       const response = await fetch("/api/cards/search?" + params.toString());
       if (!response.ok) throw new Error("Catalogue search unavailable");
       const data = await response.json() as { results?: CardSearchResult[] };
+      if (epoch !== scanEpochRef.current) return;
       const options = Array.isArray(data.results) ? data.results : [];
       if (!options.length) {
         setVisualNotice("No indexed printing matches this number. Check the set code or search manually.");
         return;
       }
       const ranked = await compareCatalogueArtwork(canvas, options,
-        (done, total) => setVisualProgress("Comparing artwork " + done + "/" + total));
+        (done, total) => {
+          if (epoch === scanEpochRef.current) setVisualProgress("Comparing artwork " + done + "/" + total);
+        });
+      if (epoch !== scanEpochRef.current) return;
       setMatches(ranked.slice(0, 5));
       if (!ranked.some((entry) => entry.similarity !== null)) {
         setVisualNotice("Reference artwork is unavailable. Confirm the set and number in the catalogue.");
@@ -165,10 +173,12 @@ export default function CardScanner({
         setVisualNotice("Artwork similarity is a suggestion, not proof of set or foil variant. Select the correct printing.");
       }
     } catch {
-      setVisualNotice("Artwork comparison is unavailable. Number search still works.");
+      if (epoch === scanEpochRef.current) setVisualNotice("Artwork comparison is unavailable. Number search still works.");
     } finally {
-      setVisualBusy(false);
-      setVisualProgress("");
+      if (epoch === scanEpochRef.current) {
+        setVisualBusy(false);
+        setVisualProgress("");
+      }
     }
   }
 
@@ -246,10 +256,9 @@ export default function CardScanner({
         return;
       }
 
-      setMessage("Detected " + number + ". Comparing catalogue artwork…");
-      await findVisualMatches(canvas, number);
       setStatus("result");
-      setMessage("Detected " + number + ". Verify the printing before adding.");
+      setMessage("Detected " + number + ". Verify the number while artwork comparison runs.");
+      void findVisualMatches(canvas, number);
     } catch {
       setStatus("error");
       setMessage("OCR could not complete on this device. Retake the photo or enter the printed code and number manually.");
@@ -385,7 +394,7 @@ export default function CardScanner({
             <span>Detected collector number</span>
             <input
               value={candidate}
-              onChange={(event) => { setCandidate(event.target.value); setMatches([]); setPreferredId(""); }}
+              onChange={(event) => { scanEpochRef.current++; setCandidate(event.target.value); setMatches([]); setPreferredId(""); setVisualBusy(false); }}
               placeholder={game === "riftbound" ? "030/298 or 030a/298" : (language === "Chinese" || language === "Chinese Simplified") ? "CSV9C 023/190" : "203/193"}
             />
           </label>
@@ -429,7 +438,7 @@ export default function CardScanner({
             </button>
           )}
           <button type="button" className="primary" onClick={() => void confirm()}
-            disabled={!candidate.trim() || visualBusy}>
+            disabled={!candidate.trim()}>
             <Check size={17} /> {preferredId ? "Review selected printing" : "Search this card number"}
           </button>
         </div>
